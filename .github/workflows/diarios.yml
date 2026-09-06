@@ -29,8 +29,17 @@ permissions:
 
 jobs:
   monitor:
+    name: Monitor ${{ matrix.source }}
     runs-on: ubuntu-latest
     timeout-minutes: 330
+
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        source:
+          - dof
+          - nuevo-leon
 
     env:
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
@@ -46,16 +55,31 @@ jobs:
       OMP_THREAD_LIMIT: "1"
 
     steps:
+      - name: Determinar si esta fuente debe ejecutarse
+        id: selected
+        shell: bash
+        run: |
+          REQUESTED="${{ inputs.source || 'all' }}"
+          CURRENT="${{ matrix.source }}"
+          if [ "$REQUESTED" = "all" ] || [ "$REQUESTED" = "$CURRENT" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Descargar código
+        if: steps.selected.outputs.run == 'true'
         uses: actions/checkout@v4
 
       - name: Configurar Python
+        if: steps.selected.outputs.run == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
 
       - name: Instalar Tesseract español
+        if: steps.selected.outputs.run == 'true'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y tesseract-ocr tesseract-ocr-spa
@@ -63,19 +87,21 @@ jobs:
           tesseract --list-langs
 
       - name: Instalar proyecto
+        if: steps.selected.outputs.run == 'true'
         run: |
           python -m pip install --upgrade pip
           pip install .
 
       - name: Pruebas del scraper
+        if: steps.selected.outputs.run == 'true'
         run: python -m unittest discover -s tests -v
 
-      - name: Revisar diarios, hacer OCR y subir a Drive
+      - name: Revisar ${{ matrix.source }}, hacer OCR y subir a Drive
+        if: steps.selected.outputs.run == 'true'
         shell: bash
         run: |
-          SOURCE="${{ inputs.source || 'all' }}"
           python -m diario_monitor \
-            --source "$SOURCE" \
+            --source "${{ matrix.source }}" \
             --lookback-days "$LOOKBACK_DAYS" \
             --ocr-dpi "$OCR_DPI" \
             --ocr-workers "$OCR_WORKERS" \
