@@ -54,6 +54,33 @@ class DofParserTests(unittest.TestCase):
         )
         self.assertIsNone(parsed)
 
+    def test_official_no_data_message_returns_none_without_title(self) -> None:
+        parsed = parse_dof_issue_page(
+            b"<html><body>No hay datos para la fecha seleccionada</body></html>",
+            "https://dof.gob.mx/index.php?year=2026&month=09&day=05&edicion=MAT",
+            expected_date=date(2026, 9, 5),
+            expected_edition="MAT",
+        )
+        self.assertIsNone(parsed)
+
+    def test_accented_dof_title_is_accepted(self) -> None:
+        parsed = parse_dof_issue_page(
+            "<html><head><title>DOF - Diario Oficial de la Federación</title></head><body>Sin publicación</body></html>".encode("utf-8"),
+            "https://dof.gob.mx/index.php",
+            expected_date=date(2026, 9, 5),
+            expected_edition="MAT",
+        )
+        self.assertIsNone(parsed)
+
+    def test_unrelated_html_still_raises(self) -> None:
+        with self.assertRaisesRegex(ValueError, "ya no parece ser una pagina del DOF"):
+            parse_dof_issue_page(
+                b"<html><head><title>Access denied</title></head><body>blocked</body></html>",
+                "https://dof.gob.mx/index.php",
+                expected_date=date(2026, 9, 5),
+                expected_edition="MAT",
+            )
+
     def test_parses_javascript_pdf_redirect(self) -> None:
         target = parse_dof_pdf_redirect(
             b"<script> self.location=('abrirPDF.php?archivo=04092026-MAT.pdf&anio=2026&repo='); </script>",
