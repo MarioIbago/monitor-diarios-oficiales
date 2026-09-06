@@ -8,15 +8,27 @@ const SCOPES = [
 
 let authInstance: GoogleAuth | null = null;
 
-function readCredentials() {
+type ServiceAccountCredentials = {
+  client_email: string;
+  private_key: string;
+  project_id?: string;
+  [key: string]: unknown;
+};
+
+function readCredentials(): ServiceAccountCredentials {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON?.trim();
   if (!raw) {
     throw new Error("Falta GOOGLE_SERVICE_ACCOUNT_JSON en las variables de entorno.");
   }
 
   try {
-    return JSON.parse(raw) as Record<string, unknown>;
-  } catch {
+    const parsed = JSON.parse(raw) as Partial<ServiceAccountCredentials>;
+    if (!parsed.client_email || !parsed.private_key) {
+      throw new Error("El JSON de Service Account no contiene client_email/private_key.");
+    }
+    return parsed as ServiceAccountCredentials;
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("client_email/private_key")) throw error;
     throw new Error(
       "GOOGLE_SERVICE_ACCOUNT_JSON no contiene JSON válido. Pega el archivo completo en una sola variable.",
     );
@@ -25,7 +37,7 @@ function readCredentials() {
 
 function getAuth() {
   if (!authInstance) {
-    authInstance = new GoogleAuth({ credentials: readCredentials() as any, scopes: SCOPES });
+    authInstance = new GoogleAuth({ credentials: readCredentials(), scopes: SCOPES });
   }
   return authInstance;
 }
