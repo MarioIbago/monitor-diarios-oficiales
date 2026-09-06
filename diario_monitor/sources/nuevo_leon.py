@@ -67,19 +67,27 @@ def _safe_component(value: str) -> str:
 
 
 def parse_nuevo_leon_listing(body: bytes, page_url: str) -> list[Issue]:
+    """Parse the current and legacy Nuevo Leon listing markup.
+
+    The portal has changed the generated table id over time.  Do not depend on
+    an exact ASP.NET id such as ``dgData``; instead identify publication rows
+    by their first two cells (issue number + Spanish publication date).
+    """
     document = html.fromstring(body, base_url=page_url)
-    if not document.xpath('//table[@id="dgData"]'):
-        raise ValueError("No se encontro la tabla de publicaciones de Nuevo Leon")
     issues: list[Issue] = []
 
-    for row in document.xpath('//table[@id="dgData"]//tr'):
+    # Scan rows rather than an exact table id. This survives ASP.NET-generated
+    # ids such as ctl00_*_dgData and the newer portal wrapper markup.
+    for row in document.xpath("//tr[td]"):
         cells = row.xpath("./td")
         if len(cells) < 3:
             continue
+
         issue_number = _clean_text(cells[0].text_content())
         raw_date = _clean_text(cells[1].text_content())
         if not issue_number or not raw_date:
             continue
+
         try:
             publication_date = _parse_spanish_date(raw_date)
         except ValueError:
@@ -88,7 +96,22 @@ def parse_nuevo_leon_listing(body: bytes, page_url: str) -> list[Issue]:
         issue_id = f"nuevo_leon:{publication_date.isoformat()}:{issue_number}"
         documents: list[Document] = []
         seen_urls: set[str] = set()
-        pdf_anchors = cells[2].xpath('.//a[contains(translate(@href, "PDF", "pdf"), ".pdf")]')
+
+        # Search all remaining cells because the portal sometimes nests the
+        # download links inside another table/container in the Contenido cell.
+        anchors = []
+        for cell in cells[2:]:
+            anchors.extend(cell.xpath('.//a[@href]'))
+
+        pdf_anchors = []
+        for anchor in anchors:
+            href = anchor.get("href", "")
+            title = anchor.get("title", "")
+            text = _clean_text(anchor.text_content())
+            combined = f"{href} {title} {text}".casefold()
+            if ".pdf" in combined:
+                pdf_anchors.append(anchor)
+
         for fallback_part, anchor in enumerate(pdf_anchors, start=1):
             raw_url = urljoin(page_url, anchor.get("href", ""))
             secure_url = _allowed_nl_url(raw_url)
@@ -96,7 +119,7 @@ def parse_nuevo_leon_listing(body: bytes, page_url: str) -> list[Issue]:
                 continue
             seen_urls.add(secure_url)
 
-            title = anchor.get("title") or ""
+            title = anchor.get("title") or anchor.text_content() or ""
             part_match = _PART_NUMBER.search(title)
             filename = PurePosixPath(urlsplit(secure_url).path).name
             file_match = _FILE_PART_NUMBER.search(filename)
@@ -132,6 +155,7 @@ def parse_nuevo_leon_listing(body: bytes, page_url: str) -> list[Issue]:
 
         if not documents:
             continue
+
         documents.sort(key=lambda item: (item.part_number or 0, item.url))
         issues.append(
             Issue(
@@ -190,6 +214,22 @@ class NuevoLeonSource:
 
     def _query(self, start: date, end: date) -> list[Issue]:
         landing = self.client.get(NL_LISTING_URL)
+
+        # The landing page already exposes the latest ~30 days. Prefer it for
+        # the daily monitor: this avoids depending on fragile WebForms field
+        # names and also handles weekends/holidays with no publication.
+        landing_issues = parse_nuevo_leon_listing(landing.body, landing.url)
+        if landing_issues:
+            recent = [issue for issue in landing_issues if start <= issue.publication_date <= end]
+            oldest = min(issue.publication_date for issue in landing_issues)
+            newest = max(issue.publication_date for issue in landing_issues)
+
+            # If the requested window is inside/adjacent to the current listing
+            # window, the landing page is authoritative even when recent == [].
+            if start >= oldest and end <= newest + timedelta(days=7):
+                return recent
+
+        # Historical fallback: submit the portal's WebForms date filters.
         fields = _hidden_form_fields(landing.body)
         fields.update(
             {
