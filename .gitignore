@@ -2,8 +2,16 @@ __pycache__/
 *.py[cod]
 .venv/
 .env
+.env.local
+.env.*.local
 service-account*.json
 *.pdf
 *.md
 !README.md
+!WEB_APP.md
 .pytest_cache/
+node_modules/
+.next/
+.vercel/
+npm-debug.log*
+.DS_Store
