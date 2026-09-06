@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { Inter, Newsreader } from "next/font/google";
 import "./globals.css";
+import "./analysis-detail.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 const newsreader = Newsreader({ subsets: ["latin"], variable: "--font-serif" });
@@ -11,7 +12,7 @@ export const metadata: Metadata = {
     default: "Diarios Oficiales",
     template: "%s · Diarios Oficiales",
   },
-  description: "Monitor operativo de publicaciones del DOF y Periódico Oficial de Nuevo León.",
+  description: "Consulta de DOF y Periódico Oficial de Nuevo León con análisis de vivienda.",
   applicationName: "Diarios Oficiales",
 };
 

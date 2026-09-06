@@ -2,12 +2,16 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  Building2,
   Download,
   ExternalLink,
   FileDown,
   FileText,
+  Link2,
   LoaderCircle,
+  MapPin,
   Sparkles,
+  Tag,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -15,6 +19,14 @@ import { ChatGPTButton } from "@/components/chatgpt-button";
 import type { Publication, PublicationDocument } from "@/lib/types";
 
 type Tab = "analysis" | "pdf" | "markdown";
+
+type AnalysisModel = {
+  paragraphs: string[];
+  bullets: string[];
+  links: string[];
+};
+
+const URL_PATTERN = /https?:\/\/[^\s<>"']+/g;
 
 function meaningful(value: string) {
   const normalized = value.trim().toUpperCase();
@@ -26,12 +38,126 @@ function apiFileUrl(fileId: string | null, disposition: "inline" | "attachment" 
   return `/api/files/${encodeURIComponent(fileId)}?disposition=${disposition}`;
 }
 
-function Topic({ label, value }: { label: string; value: string }) {
-  if (!meaningful(value)) return null;
+function cleanUrlToken(value: string) {
+  return value.replace(/[),.;]+$/g, "");
+}
+
+function unwrapGoogleRedirect(value: string) {
+  let current = value;
+
+  for (let index = 0; index < 3; index += 1) {
+    try {
+      const parsed = new URL(current);
+      const isGoogleRedirect =
+        (parsed.hostname === "google.com" || parsed.hostname === "www.google.com") &&
+        parsed.pathname === "/url";
+
+      if (!isGoogleRedirect) break;
+      const next = parsed.searchParams.get("q") || parsed.searchParams.get("url");
+      if (!next || next === current) break;
+      current = next;
+    } catch {
+      break;
+    }
+  }
+
+  return current;
+}
+
+function parseAnalysisText(value: string): AnalysisModel {
+  if (!value.trim()) return { paragraphs: [], bullets: [], links: [] };
+
+  const rawLinks = value.match(URL_PATTERN) || [];
+  let text = value;
+
+  rawLinks.forEach((raw) => {
+    text = text.replace(raw, "");
+  });
+
+  text = text
+    .replace(/[ \t]+/g, " ")
+    .replace(/\s+-\s+/g, "\n- ")
+    .replace(/\s*,\s*(?=\n|$)/g, "")
+    .replace(/\n\s*y\s*(?=\n|$)/gi, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  const lines = text
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter((line) => line && !/^[,;:\s]+$/.test(line) && line.toLowerCase() !== "y");
+
+  const paragraphs: string[] = [];
+  const bullets: string[] = [];
+
+  lines.forEach((line) => {
+    if (/^[-•]\s+/.test(line)) {
+      bullets.push(line.replace(/^[-•]\s+/, "").trim());
+    } else {
+      paragraphs.push(line);
+    }
+  });
+
+  const links = Array.from(
+    new Set(
+      rawLinks
+        .map(cleanUrlToken)
+        .map(unwrapGoogleRedirect)
+        .filter((link) => /^https?:\/\//i.test(link)),
+    ),
+  );
+
+  return { paragraphs, bullets, links };
+}
+
+function splitList(value: string) {
+  return value
+    .split(/\n|;|,/)
+    .map((item) => item.trim().replace(/^[-•]\s*/, ""))
+    .filter(Boolean);
+}
+
+function AnalysisCopy({ model, fallback }: { model: AnalysisModel; fallback?: string }) {
+  if (!model.paragraphs.length && !model.bullets.length) {
+    return <p className="analysis-fallback">{fallback || "No hay información disponible."}</p>;
+  }
+
   return (
-    <div className="topic-block">
-      <span>{label}</span>
-      <p>{value}</p>
+    <div className="analysis-copy">
+      {model.paragraphs.map((paragraph, index) => (
+        <p key={`${paragraph}-${index}`}>{paragraph}</p>
+      ))}
+      {model.bullets.length > 0 && (
+        <ul className="finding-list">
+          {model.bullets.map((bullet, index) => (
+            <li key={`${bullet}-${index}`}>
+              <span className="finding-marker" aria-hidden="true" />
+              <span>{bullet}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function ReferenceLinks({ links }: { links: string[] }) {
+  if (!links.length) return null;
+
+  return (
+    <div className="reference-panel">
+      <div className="reference-heading">
+        <Link2 size={16} />
+        <span>Expedientes y referencias</span>
+      </div>
+      <div className="reference-links">
+        {links.map((link, index) => (
+          <a key={link} href={link} target="_blank" rel="noreferrer">
+            <span>Expediente {index + 1}</span>
+            <ExternalLink size={14} />
+          </a>
+        ))}
+      </div>
     </div>
   );
 }
@@ -44,16 +170,38 @@ export function PublicationDetail({ publication }: { publication: Publication })
   const document = publication.documents[documentIndex] as PublicationDocument | undefined;
 
   const topics = useMemo(
-    () => [
-      ["Vivienda", publication.analysis.housing],
-      ["Urbanismo", publication.analysis.urbanism],
-      ["Infraestructura", publication.analysis.infrastructure],
-      ["Construcción", publication.analysis.construction],
-      ["Uso de suelo", publication.analysis.landUse],
-      ["Permisos y licencias", publication.analysis.permits],
-      ["Movilidad", publication.analysis.mobility],
-    ] as const,
+    () =>
+      ([
+        ["Vivienda", publication.analysis.housing],
+        ["Urbanismo", publication.analysis.urbanism],
+        ["Infraestructura", publication.analysis.infrastructure],
+        ["Construcción", publication.analysis.construction],
+        ["Uso de suelo", publication.analysis.landUse],
+        ["Permisos y licencias", publication.analysis.permits],
+        ["Movilidad", publication.analysis.mobility],
+      ] as const).filter(([, value]) => meaningful(value)),
     [publication.analysis],
+  );
+
+  const summaryModel = useMemo(
+    () => parseAnalysisText(publication.analysis.summary),
+    [publication.analysis.summary],
+  );
+  const changesModel = useMemo(
+    () => parseAnalysisText(publication.analysis.changes),
+    [publication.analysis.changes],
+  );
+  const historyModel = useMemo(
+    () => parseAnalysisText(publication.analysis.historicalComparison),
+    [publication.analysis.historicalComparison],
+  );
+  const municipalities = useMemo(
+    () => splitList(publication.analysis.municipalities),
+    [publication.analysis.municipalities],
+  );
+  const agencies = useMemo(
+    () => splitList(publication.analysis.agencies),
+    [publication.analysis.agencies],
   );
 
   useEffect(() => {
@@ -125,48 +273,85 @@ export function PublicationDetail({ publication }: { publication: Publication })
       </div>
 
       {tab === "analysis" && (
-        <section className="analysis-layout">
-          <div className="analysis-primary">
-            <section className="content-section">
-              <h2>Resumen</h2>
-              <div className="prose-text">
-                {publication.analysis.summary || "El análisis todavía no está disponible."}
+        <section className="analysis-layout analysis-layout-refined">
+          <div className="analysis-primary analysis-primary-refined">
+            <section className="analysis-card executive-summary-card">
+              <div className="analysis-card-heading">
+                <span>Lectura rápida</span>
+                <h2>Resumen ejecutivo</h2>
+                <p>Los puntos centrales de esta publicación, sin enlaces largos ni texto técnico innecesario.</p>
               </div>
+              <AnalysisCopy
+                model={summaryModel}
+                fallback="El análisis todavía no está disponible."
+              />
+              <ReferenceLinks links={summaryModel.links} />
             </section>
 
             {publication.analysis.changes && (
-              <section className="content-section">
-                <h2>Cambios detectados</h2>
-                <div className="prose-text">{publication.analysis.changes}</div>
+              <section className="analysis-card">
+                <div className="analysis-card-heading compact">
+                  <span>Qué cambió</span>
+                  <h2>Cambios y hallazgos</h2>
+                </div>
+                <AnalysisCopy model={changesModel} />
+                <ReferenceLinks links={changesModel.links} />
               </section>
             )}
 
             {publication.analysis.historicalComparison && (
-              <section className="content-section">
-                <h2>Comparación histórica</h2>
-                <div className="prose-text">{publication.analysis.historicalComparison}</div>
+              <section className="analysis-card">
+                <div className="analysis-card-heading compact">
+                  <span>Contexto</span>
+                  <h2>Comparación histórica</h2>
+                </div>
+                <AnalysisCopy model={historyModel} />
+                <ReferenceLinks links={historyModel.links} />
               </section>
             )}
           </div>
 
-          <aside className="analysis-aside">
-            <div className="aside-section">
-              <h3>Temas detectados</h3>
-              {topics.map(([label, value]) => (
-                <Topic key={label} label={label} value={value} />
-              ))}
-            </div>
-            {publication.analysis.municipalities && (
-              <div className="aside-section">
-                <h3>Municipios</h3>
-                <p className="preline">{publication.analysis.municipalities}</p>
-              </div>
+          <aside className="analysis-aside analysis-aside-refined">
+            {topics.length > 0 && (
+              <section className="insight-card">
+                <div className="insight-title">
+                  <Tag size={16} />
+                  <h3>Temas detectados</h3>
+                </div>
+                <div className="topic-chips">
+                  {topics.map(([label]) => (
+                    <span key={label}>{label}</span>
+                  ))}
+                </div>
+              </section>
             )}
-            {publication.analysis.agencies && (
-              <div className="aside-section">
-                <h3>Dependencias</h3>
-                <p className="preline">{publication.analysis.agencies}</p>
-              </div>
+
+            {municipalities.length > 0 && (
+              <section className="insight-card">
+                <div className="insight-title">
+                  <MapPin size={16} />
+                  <h3>Municipios</h3>
+                </div>
+                <div className="municipality-chips">
+                  {municipalities.map((municipality) => (
+                    <span key={municipality}>{municipality}</span>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {agencies.length > 0 && (
+              <section className="insight-card">
+                <div className="insight-title">
+                  <Building2 size={16} />
+                  <h3>Dependencias</h3>
+                </div>
+                <ul className="agency-list">
+                  {agencies.map((agency, index) => (
+                    <li key={`${agency}-${index}`}>{agency}</li>
+                  ))}
+                </ul>
+              </section>
             )}
           </aside>
         </section>
