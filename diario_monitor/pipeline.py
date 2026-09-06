@@ -13,7 +13,7 @@ from .naming import base_filename, stable_document_id
 from .ocr import pdf_to_markdown
 
 
-SHEET_WRITE_DELAY_SECONDS = 15
+SHEET_WRITE_DELAY_SECONDS = 90
 FALLBACK_LOOKBACK_DAYS = 4
 
 
