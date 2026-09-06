@@ -11,14 +11,14 @@ export const metadata: Metadata = {
     default: "Diarios Oficiales",
     template: "%s · Diarios Oficiales",
   },
-  description: "Consulta de DOF y Periódico Oficial de Nuevo León con análisis de vivienda.",
+  description: "Monitor operativo de publicaciones del DOF y Periódico Oficial de Nuevo León.",
   applicationName: "Diarios Oficiales",
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#f7f7f4",
+  themeColor: "#f4f7fb",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
