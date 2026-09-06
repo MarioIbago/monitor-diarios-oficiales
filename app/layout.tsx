@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Inter, Newsreader } from "next/font/google";
 import "./globals.css";
 import "./analysis-detail.css";
+import "./mobile-ui.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 const newsreader = Newsreader({ subsets: ["latin"], variable: "--font-serif" });
@@ -19,6 +20,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  viewportFit: "cover",
   themeColor: "#f4f7fb",
 };
 
