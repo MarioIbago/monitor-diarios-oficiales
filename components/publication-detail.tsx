@@ -178,7 +178,6 @@ export function PublicationDetail({ publication }: { publication: Publication })
         ["Construcción", publication.analysis.construction],
         ["Uso de suelo", publication.analysis.landUse],
         ["Permisos y licencias", publication.analysis.permits],
-        ["Movilidad", publication.analysis.mobility],
       ] as const).filter(([, value]) => meaningful(value)),
     [publication.analysis],
   );
