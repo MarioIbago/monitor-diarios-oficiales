@@ -54,6 +54,15 @@ class DofParserTests(unittest.TestCase):
         )
         self.assertIsNone(parsed)
 
+    def test_page_without_issue_with_uppercase_title_returns_none(self) -> None:
+        parsed = parse_dof_issue_page(
+            b"<html><head><title>DOF - DIARIO OFICIAL DE LA FEDERACION</title></head><body>Sin publicacion</body></html>",
+            "https://dof.gob.mx/index.php",
+            expected_date=date(2026, 9, 5),
+            expected_edition="MAT",
+        )
+        self.assertIsNone(parsed)
+
     def test_parses_javascript_pdf_redirect(self) -> None:
         target = parse_dof_pdf_redirect(
             b"<script> self.location=('abrirPDF.php?archivo=04092026-MAT.pdf&anio=2026&repo='); </script>",
