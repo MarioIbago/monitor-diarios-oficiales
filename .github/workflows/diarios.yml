@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       lookback_days:
-        description: "Días hacia atrás a revisar"
+        description: "Días calendario a revisar (2 = ayer + hoy)"
         required: false
-        default: "1"
+        default: "2"
       source:
         description: "Fuente"
         required: false
@@ -37,7 +37,10 @@ jobs:
       GOOGLE_SHEET_ID: ${{ vars.GOOGLE_SHEET_ID }}
       GOOGLE_SHEET_TAB: ${{ vars.GOOGLE_SHEET_TAB || 'Monitor' }}
       GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ vars.GOOGLE_DRIVE_ROOT_FOLDER_ID }}
-      LOOKBACK_DAYS: ${{ inputs.lookback_days || vars.LOOKBACK_DAYS || '7' }}
+      # La ejecución diaria de las 07:00 revisa ayer + hoy. Esto cubre
+      # operacionalmente la ventana 07:01 de ayer -> 07:00 de hoy; las
+      # publicaciones ya registradas no vuelven a escribirse en Sheets.
+      LOOKBACK_DAYS: ${{ inputs.lookback_days || vars.LOOKBACK_DAYS || '2' }}
       OCR_DPI: ${{ vars.OCR_DPI || '150' }}
       OCR_WORKERS: ${{ vars.OCR_WORKERS || '4' }}
       OMP_THREAD_LIMIT: "1"
