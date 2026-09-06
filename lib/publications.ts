@@ -9,7 +9,6 @@ import type {
 
 const EMPTY_ANALYSIS: PublicationAnalysis = {
   relevant: "",
-  mobility: "",
   construction: "",
   urbanism: "",
   infrastructure: "",
@@ -120,7 +119,6 @@ function documentFromMonitor(row: Record<string, string>): PublicationDocument {
 function analysisFromRow(row: Record<string, string>): PublicationAnalysis {
   return {
     relevant: row["Relevante"] || "",
-    mobility: row["Movilidad"] || "",
     construction: row["Construccion"] || "",
     urbanism: row["Urbanismo"] || "",
     infrastructure: row["Infraestructura"] || "",
