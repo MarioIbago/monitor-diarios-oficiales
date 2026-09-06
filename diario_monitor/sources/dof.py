@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import html as html_stdlib
 import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import PurePosixPath
@@ -33,6 +34,11 @@ _DIRECT_PDF_REDIRECT = re.compile(
 
 def _clean_text(value: str) -> str:
     return " ".join(value.replace("\xa0", " ").split())
+
+
+def _normalize_for_match(value: str) -> str:
+    normalized = unicodedata.normalize("NFD", _clean_text(value).casefold())
+    return "".join(char for char in normalized if unicodedata.category(char) != "Mn")
 
 
 def _iter_dates(start: date, end: date):
@@ -73,8 +79,8 @@ def parse_dof_issue_page(
     page_text = _clean_text(document.text_content())
     marker = _ISSUE_MARKER.search(page_text)
     if not marker:
-        title = _clean_text(" ".join(document.xpath("//title/text()")))
-        if "Diario Oficial de la Federacion" not in title.replace("ó", "o"):
+        title = _normalize_for_match(" ".join(document.xpath("//title/text()")))
+        if "diario oficial de la federacion" not in title:
             raise ValueError("La respuesta ya no parece ser una pagina del DOF")
         return None
 
