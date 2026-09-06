@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
 from pathlib import Path
 
-import fitz
+import pymupdf
 import pytesseract
 from PIL import Image
 
@@ -15,11 +15,11 @@ from PIL import Image
 
 
 def _ocr_page(pdf_path: str, page_number: int, dpi: int, language: str) -> tuple[int, str]:
-    document = fitz.open(pdf_path)
+    document = pymupdf.open(pdf_path)
     try:
         page = document.load_page(page_number)
         zoom = dpi / 72.0
-        pixmap = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+        pixmap = page.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), alpha=False)
         image = Image.open(BytesIO(pixmap.tobytes("png")))
         text = pytesseract.image_to_string(
             image,
@@ -47,7 +47,7 @@ def pdf_to_markdown(
     markdown_path = markdown_path.resolve()
     markdown_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with fitz.open(str(pdf_path)) as document:
+    with pymupdf.open(str(pdf_path)) as document:
         page_count = len(document)
 
     if page_count == 0:
