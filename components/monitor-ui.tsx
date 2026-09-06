@@ -449,8 +449,25 @@ function Detail({ publication, onPublications, onRun }: { publication: Publicati
   </>;
 }
 
+function drivePreviewUrl(url?: string) {
+  if (!url) return "";
+  const fileId = url.match(/\/d\/([^/?#]+)/)?.[1] || (() => {
+    try { return new URL(url).searchParams.get("id") || ""; } catch { return ""; }
+  })();
+  return fileId ? `https://drive.google.com/file/d/${fileId}/preview` : url;
+}
+
 function PdfViewer({ publication, documentUrl }: { publication: Publication; documentUrl?: string }) {
-  return <section className="monitor-pdf-card"><div className="monitor-pdf-heading"><div><SourceMark publication={publication} /><span><b>{sourceName(publication)} · {editionLabel(publication)}</b><small>{dateLabel(publication.date)}</small></span></div><StatusPill status={publication.status} /></div><div className="monitor-pdf-shell"><div className="monitor-pdf-toolbar"><PanelsTopLeft size={14} /><b>1</b><span>/ {Math.max(publication.documents.length, 1)}</span><button type="button">−</button><b>100%</b><button type="button">+</button><i /><button type="button"><RefreshCw size={15} /></button>{documentUrl ? <a href={documentUrl} target="_blank" rel="noreferrer"><Download size={15} /></a> : <button type="button"><Download size={15} /></button>}</div><div className="monitor-pdf-body"><div className="monitor-pdf-thumbs">{Array.from({ length: Math.min(Math.max(publication.documents.length, 2), 5) }, (_, index) => <span className={index === 0 ? "selected" : ""} key={index}><i>✺</i><b>DIARIO<br />OFICIAL</b><small>{index + 1}</small></span>)}</div><div className="monitor-pdf-preview"><div className="monitor-pdf-page"><i>✺</i><strong>ESTADOS UNIDOS MEXICANOS</strong><h2>{sourceName(publication) === "DOF" ? "DIARIO OFICIAL\nDE LA FEDERACIÓN" : "PERIÓDICO OFICIAL\nDEL ESTADO"}</h2><small>ÓRGANO DE DIFUSIÓN OFICIAL</small><p>{editionLabel(publication)}   {dateLabel(publication.date)}</p><h3>CONTENIDO</h3><b>{publication.documents.length ? publication.documents.map((item) => item.name).join("\n") : "Documento en proceso de carga"}</b><footer>Índice y disposiciones<br />oficiales</footer></div></div></div></div></section>;
+  const [selectedDocument, setSelectedDocument] = useState(0);
+  const [zoom, setZoom] = useState(100);
+  const [reloadKey, setReloadKey] = useState(0);
+  const documents = publication.documents;
+  const activeIndex = Math.min(selectedDocument, Math.max(documents.length - 1, 0));
+  const activeDocument = documents[activeIndex];
+  const activeUrl = activeDocument?.pdfDriveUrl || activeDocument?.sourceUrl || documentUrl;
+  const previewUrl = drivePreviewUrl(activeUrl);
+
+  return <section className="monitor-pdf-card"><div className="monitor-pdf-heading"><div><SourceMark publication={publication} /><span><b>{sourceName(publication)} · {editionLabel(publication)}</b><small>{dateLabel(publication.date)} · {documents.length || 0} archivo(s)</small></span></div><StatusPill status={publication.status} /></div><div className="monitor-pdf-shell"><div className="monitor-pdf-toolbar"><PanelsTopLeft size={18} /><button type="button" aria-label="Archivo anterior" disabled={activeIndex === 0} onClick={() => setSelectedDocument((index) => Math.max(index - 1, 0))}><ChevronLeft size={18} /></button><b>{documents.length ? activeIndex + 1 : 0}</b><span>/ {documents.length}</span><span className="monitor-pdf-toolbar-divider" /><button type="button" aria-label="Alejar PDF" disabled={zoom <= 80} onClick={() => setZoom((value) => Math.max(value - 10, 80))}>−</button><b>{zoom}%</b><button type="button" aria-label="Acercar PDF" disabled={zoom >= 130} onClick={() => setZoom((value) => Math.min(value + 10, 130))}>+</button><i /><button type="button" aria-label="Actualizar visor" onClick={() => setReloadKey((value) => value + 1)}><RefreshCw size={17} /></button>{activeUrl ? <a href={activeUrl} target="_blank" rel="noreferrer" aria-label="Abrir o descargar PDF"><Download size={17} /></a> : null}<button type="button" aria-label="Archivo siguiente" disabled={activeIndex >= documents.length - 1} onClick={() => setSelectedDocument((index) => Math.min(index + 1, documents.length - 1))}><ChevronRight size={18} /></button></div><div className="monitor-pdf-body"><div className="monitor-pdf-thumbs">{documents.map((document, index) => <button type="button" className={index === activeIndex ? "selected" : ""} key={document.id} onClick={() => setSelectedDocument(index)} aria-label={`Abrir archivo ${index + 1}`}><i>✺</i><b>{document.name}</b><small>{index + 1}</small></button>)}</div><div className="monitor-pdf-preview">{previewUrl ? <div className="monitor-pdf-embed-stage"><iframe key={`${previewUrl}-${reloadKey}`} title={`PDF de ${sourceName(publication)}`} src={previewUrl} style={{ transform: `scale(${zoom / 100})` }} allow="fullscreen" /></div> : <div className="monitor-pdf-unavailable"><FileText size={36} /><b>Vista previa no disponible</b><span>El archivo aún no tiene un enlace PDF público.</span></div>}</div></div></div></section>;
 }
 
 function EntityGroup({ label, items, fallback }: { label: string; items: string[]; fallback: string }) {
