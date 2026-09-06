@@ -3,7 +3,7 @@ from __future__ import annotations
 import tempfile
 import time
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from .google_store import GoogleStore, MD_MIME, PDF_MIME
@@ -14,6 +14,7 @@ from .ocr import pdf_to_markdown
 
 
 SHEET_WRITE_DELAY_SECONDS = 15
+FALLBACK_LOOKBACK_DAYS = 4
 
 
 @dataclass(slots=True)
@@ -48,11 +49,36 @@ class Pipeline:
         summary = Summary()
 
         for source in self.sources:
+            source_key = getattr(source, "key", "source")
             try:
                 issues = source.discover(start, end)
+
+                # Si en la ventana diaria (ayer + hoy) no hubo publicación,
+                # buscar hasta 4 días hacia atrás y usar SOLO la fecha más
+                # reciente que sí tenga ejemplares. Esto cubre fines de semana,
+                # festivos o días sin publicación.
+                if not issues:
+                    fallback_start = end - timedelta(days=FALLBACK_LOOKBACK_DAYS - 1)
+                    fallback_issues = source.discover(fallback_start, end)
+                    if fallback_issues:
+                        latest_date = max(issue.publication_date for issue in fallback_issues)
+                        issues = [
+                            issue
+                            for issue in fallback_issues
+                            if issue.publication_date == latest_date
+                        ]
+                        print(
+                            f"FALLBACK {source_key}: sin publicaciones entre "
+                            f"{start} y {end}; usando la última disponible: {latest_date}"
+                        )
+                    else:
+                        print(
+                            f"SIN PUBLICACIONES {source_key}: tampoco se encontró "
+                            f"nada en los últimos {FALLBACK_LOOKBACK_DAYS} días"
+                        )
             except Exception as exc:
                 summary.failed += 1
-                summary.errors.append(f"{getattr(source, 'key', 'source')}: {type(exc).__name__}: {exc}")
+                summary.errors.append(f"{source_key}: {type(exc).__name__}: {exc}")
                 continue
 
             for issue in issues:
@@ -82,7 +108,9 @@ class Pipeline:
             download = self.client.download_pdf(document.url, pdf_path)
 
             if existing and existing.get("SHA256") == download.sha256:
-                # No escribir nada en Sheets: así Workspace Studio NO vuelve a dispararse.
+                # Ya está exactamente el mismo documento en el registro.
+                # No escribir nada en Sheets: así Apps Script / Workspace Studio
+                # NO vuelve a dispararse.
                 print(f"UNCHANGED {document_id} {download.sha256[:12]}")
                 return "unchanged"
 
