@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import html as html_stdlib
 import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import PurePosixPath
@@ -33,6 +34,22 @@ _DIRECT_PDF_REDIRECT = re.compile(
 
 def _clean_text(value: str) -> str:
     return " ".join(value.replace("\xa0", " ").split())
+
+
+def _decode_html(body: bytes) -> str:
+    """Decodifica HTML del DOF sin depender de la heurística de lxml."""
+    try:
+        return body.decode("utf-8")
+    except UnicodeDecodeError:
+        return body.decode("cp1252", errors="replace")
+
+
+def _fold_text(value: str) -> str:
+    """Normaliza acentos/capitalización para comparar texto del portal."""
+    normalized = unicodedata.normalize("NFKD", value)
+    return "".join(
+        char for char in normalized if not unicodedata.combining(char)
+    ).casefold()
 
 
 def _iter_dates(start: date, end: date):
@@ -69,13 +86,25 @@ def parse_dof_issue_page(
 ) -> ParsedDofPage | None:
     """Interpreta el indice del DOF. Una pagina sin edicion regresa ``None``."""
 
-    document = html.fromstring(body, base_url=page_url)
+    _allowed_dof_url(page_url)
+    document = html.fromstring(_decode_html(body), base_url=page_url)
     page_text = _clean_text(document.text_content())
+    folded_page_text = _fold_text(page_text)
+
+    # El portal usa este mensaje para sábados, domingos, festivos y cualquier
+    # fecha sin ejemplar. Es un resultado válido, no un error del scraper.
+    if "no hay datos para la fecha seleccionada" in folded_page_text:
+        return None
+
     marker = _ISSUE_MARKER.search(page_text)
     if not marker:
         title = _clean_text(" ".join(document.xpath("//title/text()")))
-        if "Diario Oficial de la Federacion" not in title.replace("ó", "o"):
-            raise ValueError("La respuesta ya no parece ser una pagina del DOF")
+        if "diario oficial de la federacion" not in _fold_text(title):
+            preview = page_text[:180]
+            raise ValueError(
+                "La respuesta ya no parece ser una pagina del DOF "
+                f"(url={page_url!r}, titulo={title!r}, inicio={preview!r})"
+            )
         return None
 
     publication_date = date.fromisoformat(
