@@ -21,6 +21,7 @@ import {
   Lightbulb,
   ListChecks,
   Menu,
+  MessageCircle,
   MoreHorizontal,
   PanelsTopLeft,
   Play,
@@ -134,12 +135,59 @@ function findLatestSync(publications: Publication[]) {
 }
 
 function splitValues(value: string) {
-  return value.split(/[,;\n]/).map((item) => item.trim()).filter(Boolean).slice(0, 6);
+  return value
+    .split(/[,;\n]/)
+    .map(cleanAnalysisText)
+    .filter(Boolean)
+    .slice(0, 6);
+}
+
+function cleanAnalysisText(value: string) {
+  return value
+    .replace(/https?:\/\/[^\s]+/gi, " ")
+    .replace(/\b(?:www\.)?google\.com\/url\?[^\s]*/gi, " ")
+    .replace(/\s+([,.;:])/g, "$1")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function firstSentence(value: string) {
-  const candidate = value.trim().split(/(?<=[.!?])\s+/)[0];
+  const candidate = cleanAnalysisText(value).split(/(?<=[.!?])\s+/)[0];
   return candidate || "No se registró un resumen para esta publicación.";
+}
+
+function analysisTopics(publication: Publication) {
+  const fields = [
+    ["Construcción", publication.analysis.construction],
+    ["Urbanismo", publication.analysis.urbanism],
+    ["Infraestructura", publication.analysis.infrastructure],
+    ["Vivienda", publication.analysis.housing],
+    ["Uso de suelo", publication.analysis.landUse],
+    ["Permisos y licencias", publication.analysis.permits],
+  ] as const;
+
+  return fields
+    .filter(([, value]) => /^(si|sí|yes|true|1)$/i.test(cleanAnalysisText(value)))
+    .map(([label]) => label);
+}
+
+function chatGptUrl(publication: Publication, summary: string) {
+  const files = publication.documents
+    .map((document) => document.pdfDriveUrl || document.mdDriveUrl || document.sourceUrl)
+    .filter(Boolean)
+    .slice(0, 3)
+    .join("\n");
+  const prompt = [
+    "Analiza esta publicación oficial y responde en español claro.",
+    `Fuente: ${sourceName(publication)}`,
+    `Fecha: ${dateLabel(publication.date)}`,
+    `Edición: ${editionLabel(publication)}`,
+    summary ? `Resumen disponible: ${summary}` : "No hay resumen previo.",
+    files ? `Documentos fuente:\n${files}` : "No hay enlaces de documento disponibles.",
+    "Identifica cambios, obligaciones, plazos, autoridades involucradas y posibles impactos.",
+  ].join("\n\n");
+  return `https://chatgpt.com/?q=${encodeURIComponent(prompt)}`;
 }
 
 export function MonitorUi({ publications, initialView = "dashboard", selectedId }: MonitorUiProps) {
@@ -155,6 +203,10 @@ export function MonitorUi({ publications, initialView = "dashboard", selectedId 
   const [runMessage, setRunMessage] = useState("");
 
   const latestDate = useMemo(() => findLatest(publications), [publications]);
+  const earliestDate = useMemo(
+    () => publications.reduce((earliest, publication) => !earliest || publication.date < earliest ? publication.date : earliest, ""),
+    [publications],
+  );
   const latestSync = useMemo(() => findLatestSync(publications), [publications]);
   const pending = useMemo(() => publications.filter((item) => item.status !== "COMPLETADO").length, [publications]);
   const docsCount = useMemo(() => publications.reduce((sum, item) => sum + item.documents.length, 0), [publications]);
@@ -262,10 +314,10 @@ export function MonitorUi({ publications, initialView = "dashboard", selectedId 
             <header className="monitor-topbar">
               <button type="button" className="monitor-mobile-brand" onClick={() => navigate("dashboard")}><span><FileText size={18} /></span><b>Monitor de<br />Diarios Oficiales</b></button>
               <label className="monitor-global-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar publicaciones, palabras clave, números de edición…" /></label>
-              <button type="button" className="monitor-date-control"><CalendarDays size={15} /><span>1 de abr. de 2025</span><b>→</b><span>30 de abr. de 2025</span><ChevronDown size={13} /></button>
+              <div className="monitor-date-control" aria-label="Periodo de publicaciones"><CalendarDays size={15} /><span>{earliestDate ? dateLabel(earliestDate, true) : "Sin registros"}</span><b>→</b><span>{latestDate ? dateLabel(latestDate, true) : "Sin registros"}</span></div>
               <button type="button" className="monitor-run-button monitor-top-run" onClick={() => { setRunState("idle"); setRunOpen(true); }}><Play size={13} fill="currentColor" />Ejecutar revisión</button>
               <button type="button" className="monitor-top-icon" aria-label="Notificaciones"><Bell size={17} /><i /></button>
-              <button type="button" className="monitor-profile"><span>LC</span><b>Laura Campos<small>Analista</small></b><ChevronDown size={13} /></button>
+              <span className="monitor-profile"><span>MO</span><b>Monitor<small>Sistema activo</small></b></span>
               <button type="button" className="monitor-mobile-menu" aria-label="Abrir menú" onClick={() => setMenuOpen((open) => !open)}>{menuOpen ? <X size={21} /> : <Menu size={21} />}</button>
             </header>
 
@@ -329,7 +381,7 @@ export function MonitorUi({ publications, initialView = "dashboard", selectedId 
 }
 
 function PageHero({ title, subtitle, crumb, back }: { title: string; subtitle: string; crumb?: string; back?: () => void }) {
-  return <section className="monitor-hero"><div className="monitor-hero-landscape" aria-hidden="true"><i /><i /><i /></div><div className="monitor-hero-content">{crumb ? <p className="monitor-breadcrumb">{crumb}</p> : <p className="monitor-greeting">Bienvenida, Laura</p>}<h1>{title}</h1><p>{subtitle}</p></div>{back ? <button type="button" className="monitor-hero-back" onClick={back}><ChevronLeft size={14} /> Volver a publicaciones</button> : <span className="monitor-hero-tagline">Información oficial,<br /><em>mayores posibilidades.</em><i /></span>}</section>;
+  return <section className="monitor-hero"><div className="monitor-hero-landscape" aria-hidden="true"><i /><i /><i /></div><div className="monitor-hero-content">{crumb ? <p className="monitor-breadcrumb">{crumb}</p> : <p className="monitor-greeting">Información oficial actualizada</p>}<h1>{title}</h1><p>{subtitle}</p></div>{back ? <button type="button" className="monitor-hero-back" onClick={back}><ChevronLeft size={14} /> Volver a publicaciones</button> : <span className="monitor-hero-tagline">Información oficial,<br /><em>mayores posibilidades.</em><i /></span>}</section>;
 }
 
 function MetricCard({ Icon, tone, value, label, detail }: { Icon: LucideIcon; tone: string; value: number; label: string; detail: string }) {
@@ -387,11 +439,13 @@ function Detail({ publication, onPublications, onRun }: { publication: Publicati
   const document = publication.documents[0];
   const agencies = splitValues(publication.analysis.agencies);
   const municipalities = splitValues(publication.analysis.municipalities);
-  const topics = splitValues([publication.analysis.construction, publication.analysis.urbanism, publication.analysis.infrastructure, publication.analysis.housing, publication.analysis.landUse].filter(Boolean).join(","));
-  const findings = [publication.analysis.summary, publication.analysis.changes, publication.analysis.modifiesPrevious, publication.analysis.historicalComparison].filter((item) => item?.trim()).map(firstSentence).slice(0, 5);
+  const topics = analysisTopics(publication);
+  const summary = cleanAnalysisText(publication.analysis.summary);
+  const findings = [summary, publication.analysis.changes, publication.analysis.modifiesPrevious, publication.analysis.historicalComparison].map(cleanAnalysisText).filter(Boolean).map(firstSentence).slice(0, 5);
+  const chatUrl = chatGptUrl(publication, summary);
   return <>
     <PageHero crumb="Inicio   ›   Publicaciones   ›   Detalle de publicación" title="Detalle de publicación" subtitle="Consulta el contenido y análisis de esta edición del Diario Oficial." back={onPublications} />
-    <main className="monitor-detail-content"><div className="monitor-detail-navigation"><button type="button"><ChevronLeft size={14} /> Publicación anterior</button><button type="button">Siguiente publicación <ChevronRight size={14} /></button></div><div className="monitor-detail-grid"><PdfViewer publication={publication} documentUrl={document?.pdfDriveUrl || document?.sourceUrl} /><div className="monitor-detail-side"><section className="monitor-detail-card monitor-information"><div className="monitor-detail-title"><FileText size={16} /><h2>Información general</h2><StatusPill status={publication.status} /></div><dl><div><dt>Fuente</dt><dd><SourceMark publication={publication} small />{sourceName(publication)}</dd></div><div><dt>Edición</dt><dd>{editionLabel(publication)}</dd></div><div><dt>Fecha</dt><dd>{dateLabel(publication.date)}</dd></div><div><dt>Partes / PDF</dt><dd>{publication.documents.length}</dd></div><div><dt>Estado</dt><dd><StatusPill status={publication.status} /></dd></div><div><dt>Hash SHA</dt><dd>{document?.sha256 ? `${document.sha256.slice(0, 13)}…${document.sha256.slice(-8)}` : "Sin hash"}<Copy size={14} /></dd></div></dl></section><section className="monitor-detail-card"><div className="monitor-detail-title"><ClipboardList size={16} /><h2>Resumen ejecutivo</h2><button type="button"><Sparkles size={12} /> Generado por IA</button></div><p className="monitor-executive-copy">{publication.analysis.summary || "El análisis estará disponible cuando finalice el procesamiento del documento."}</p></section><section className="monitor-detail-card"><div className="monitor-detail-title"><ListChecks size={16} /><h2>Entidades detectadas</h2><button type="button">Ver todas</button></div><div className="monitor-entity-columns"><EntityGroup label="Dependencias" items={agencies} fallback="No detectadas" /><EntityGroup label="Municipios" items={municipalities} fallback="No detectados" /><EntityGroup label="Temas" items={topics} fallback="En análisis" /></div></section><section className="monitor-detail-card"><div className="monitor-detail-title"><Lightbulb size={16} /><h2>Hallazgos clave</h2></div><ol className="monitor-findings">{(findings.length ? findings : ["El documento está en proceso de análisis."]).map((finding, index) => <li key={`${finding}-${index}`}><i>{index + 1}</i><span>{finding}</span></li>)}</ol></section><div className="monitor-detail-bottom"><History publication={publication} /><section className="monitor-detail-card monitor-actions"><div className="monitor-detail-title"><Zap size={16} /><h2>Acciones</h2></div>{document?.pdfDriveUrl ? <a className="monitor-run-button" href={document.pdfDriveUrl} target="_blank" rel="noreferrer"><Download size={14} /> Descargar PDF</a> : <button className="monitor-run-button" type="button" onClick={onRun}><Download size={14} /> Descargar PDF</button>} {document?.mdDriveUrl ? <a href={document.mdDriveUrl} target="_blank" rel="noreferrer"><FileText size={14} /> Abrir Markdown</a> : null}<button type="button" onClick={onRun}><ClipboardList size={14} /> Enviar a hoja</button><button type="button" className="success"><Check size={14} /> Marcar como completado</button></section></div></div></div></main>
+    <main className="monitor-detail-content"><div className="monitor-detail-navigation"><button type="button"><ChevronLeft size={14} /> Publicación anterior</button><button type="button">Siguiente publicación <ChevronRight size={14} /></button></div><div className="monitor-detail-grid"><PdfViewer publication={publication} documentUrl={document?.pdfDriveUrl || document?.sourceUrl} /><div className="monitor-detail-side"><section className="monitor-detail-card monitor-information"><div className="monitor-detail-title"><FileText size={16} /><h2>Información general</h2><StatusPill status={publication.status} /></div><dl><div><dt>Fuente</dt><dd><SourceMark publication={publication} small />{sourceName(publication)}</dd></div><div><dt>Edición</dt><dd>{editionLabel(publication)}</dd></div><div><dt>Fecha</dt><dd>{dateLabel(publication.date)}</dd></div><div><dt>Partes / PDF</dt><dd>{publication.documents.length}</dd></div><div><dt>Estado</dt><dd><StatusPill status={publication.status} /></dd></div><div><dt>Hash SHA</dt><dd>{document?.sha256 ? `${document.sha256.slice(0, 13)}…${document.sha256.slice(-8)}` : "Sin hash"}<Copy size={14} /></dd></div></dl></section><section className="monitor-detail-card"><div className="monitor-detail-title"><ClipboardList size={16} /><h2>Resumen ejecutivo</h2><button type="button"><Sparkles size={12} /> Generado por IA</button></div><p className="monitor-executive-copy">{summary || "El análisis estará disponible cuando finalice el procesamiento del documento."}</p></section><section className="monitor-detail-card"><div className="monitor-detail-title"><ListChecks size={16} /><h2>Entidades detectadas</h2><button type="button">Ver todas</button></div><div className="monitor-entity-columns"><EntityGroup label="Dependencias" items={agencies} fallback="No detectadas" /><EntityGroup label="Municipios" items={municipalities} fallback="No detectados" /><EntityGroup label="Temas" items={topics} fallback="En análisis" /></div></section><section className="monitor-detail-card"><div className="monitor-detail-title"><Lightbulb size={16} /><h2>Hallazgos clave</h2></div><ol className="monitor-findings">{(findings.length ? findings : ["El documento está en proceso de análisis."]).map((finding, index) => <li key={`${finding}-${index}`}><i>{index + 1}</i><span>{finding}</span></li>)}</ol></section><div className="monitor-detail-bottom"><History publication={publication} /><section className="monitor-detail-card monitor-actions"><div className="monitor-detail-title"><Zap size={16} /><h2>Acciones</h2></div><a className="monitor-chat-button" href={chatUrl} target="_blank" rel="noreferrer"><MessageCircle size={14} /> Consultar con ChatGPT <ExternalLink size={12} /></a>{document?.pdfDriveUrl ? <a className="monitor-run-button" href={document.pdfDriveUrl} target="_blank" rel="noreferrer"><Download size={14} /> Descargar PDF</a> : <button className="monitor-run-button" type="button" onClick={onRun}><Download size={14} /> Descargar PDF</button>} {document?.mdDriveUrl ? <a href={document.mdDriveUrl} target="_blank" rel="noreferrer"><FileText size={14} /> Abrir Markdown</a> : null}<button type="button" onClick={onRun}><RefreshCw size={14} /> Reprocesar publicación</button></section></div></div></div></main>
   </>;
 }
 
