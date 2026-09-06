@@ -1,4 +1,5 @@
 import { PublicationExplorer } from "@/components/publication-explorer";
+import { RunMonitorButton } from "@/components/run-monitor-button";
 import { getPublications } from "@/lib/publications";
 
 export const dynamic = "force-dynamic";
@@ -6,7 +7,12 @@ export const dynamic = "force-dynamic";
 export default async function HomePage() {
   try {
     const publications = await getPublications();
-    return <PublicationExplorer publications={publications} />;
+    return (
+      <>
+        <PublicationExplorer publications={publications} />
+        <RunMonitorButton />
+      </>
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "No se pudieron cargar los datos.";
     return (
