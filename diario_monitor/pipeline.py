@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import time
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -11,6 +12,8 @@ from .models import Document, Issue
 from .naming import base_filename, stable_document_id
 from .ocr import pdf_to_markdown
 
+
+SHEET_WRITE_DELAY_SECONDS = 15
 
 
 @dataclass(slots=True)
@@ -139,5 +142,12 @@ class Pipeline:
                 revision=revision,
                 change=change,
             )
-            print(f"{change} {document_id} -> Drive / Sheet")
+            print(
+                f"{change} {document_id} -> Drive / Sheet; "
+                f"esperando {SHEET_WRITE_DELAY_SECONDS}s antes de permitir otra escritura"
+            )
+            # Cada fila escrita puede disparar una automatización distinta.
+            # Espaciarlas evita que varias ejecuciones de Apps Script/Studio
+            # compitan entre sí por el mismo Sheet.
+            time.sleep(SHEET_WRITE_DELAY_SECONDS)
             return state
