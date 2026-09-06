@@ -70,6 +70,13 @@
   .monitor-detail-navigation { display: none; }.monitor-detail-grid { display: block; }.monitor-detail-side { margin-top: 9px; }.monitor-pdf-body { height: 394px; }.monitor-pdf-page { width: 216px; min-height: 335px; padding: 22px 15px 10px; }.monitor-pdf-page h2 { margin: 10px 0 6px; font-size: 22px; }.monitor-pdf-page > i { width: 56px; height: 56px; font-size: 42px; }.monitor-detail-bottom { grid-template-columns: 1fr; }.monitor-entity-columns { grid-template-columns: 1fr 1fr; }.monitor-entity-columns div:last-child { grid-column: span 2; }
 }
 
+/* Functional controls and small-screen touch targets */
+.monitor-filter-panel .monitor-select { padding: 0 8px; }.monitor-filter-panel .monitor-select select { width: 100%; min-width: 0; color: #34405b; background: transparent; border: 0; outline: 0; font: inherit; font-size: 8px; }.monitor-schedule-active { padding: 3px 7px; color: #078c60; background: #e5f8ed; border-radius: 12px; font-size: 7px; font-style: normal; font-weight: 700; }.monitor-ai-label { display: inline-flex; align-items: center; gap: 4px; color: #147ab7; font-size: 12px; white-space: nowrap; }.monitor-quick-actions > div:last-child { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+@media (max-width: 850px) {
+  .monitor-filter-panel { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px; }.monitor-filter-panel > button, .monitor-filter-panel > .export { display: inline-flex; }.monitor-filter-panel > button:first-child { grid-column: span 2; }.monitor-filter-panel > label { min-width: 0; height: 36px; padding: 0 10px; }.monitor-filter-panel > label:last-of-type { grid-column: span 2; }.monitor-filter-panel .monitor-select select { font-size: 11px; }.monitor-filter-panel .export { height: 36px; font-size: 11px; }.monitor-mobile-nav button { min-height: 46px; font-size: 9px; }.monitor-mobile-nav button svg { width: 21px; height: 21px; }
+}
+
 @media (max-width: 380px) { .monitor-metrics-row { gap: 5px; }.monitor-metric-card { padding: 10px 8px; }.monitor-metric-card > strong { font-size: 21px; }.monitor-metric-card > span { font-size: 8px; }.monitor-metric-card > small { font-size: 5.5px; }.monitor-hero h1 { font-size: 22px; }.monitor-pdf-thumbs { display: none; }.monitor-pdf-body { grid-template-columns: 1fr; }.monitor-pdf-page { width: 220px; } }
 
 /* Detail screen: readable desktop document workspace */
