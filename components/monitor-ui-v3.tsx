@@ -1,13 +1,13 @@
 "use client";
 
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, type ReactNode, useMemo, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
   Building2,
-  CalendarDays,
   Check,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   CircleAlert,
   Clock3,
@@ -16,7 +16,6 @@ import {
   ExternalLink,
   FileSearch,
   FileText,
-  Filter,
   Home,
   Landmark,
   Menu,
@@ -24,7 +23,6 @@ import {
   Play,
   RefreshCw,
   Search,
-  Sparkles,
   X,
 } from "lucide-react";
 import type { Publication } from "@/lib/types";
@@ -117,12 +115,18 @@ function documentUrl(document: Publication["documents"][number] | undefined, kin
   return `/api/documents/${encodeURIComponent(id)}${download ? "?download=1" : ""}`;
 }
 
+function documentTitle(document: Publication["documents"][number], index: number) {
+  const part = document.part?.trim();
+  if (part) return part;
+  const name = document.name?.trim();
+  return name || `Archivo ${index + 1}`;
+}
+
 function chatUrl(publication: Publication) {
   const summary = clean(publication.analysis.summary);
   const links = publication.documents
     .map((doc) => doc.pdfDriveUrl || doc.mdDriveUrl || doc.sourceUrl)
     .filter(Boolean)
-    .slice(0, 3)
     .join("\n");
   const prompt = [
     "Analiza esta publicación oficial en español claro.",
@@ -268,10 +272,9 @@ export function MonitorUiV3({ publications, initialView = "dashboard", selectedI
           <button type="button" onClick={() => openRun()}><Play size={18} />Ejecutar revisión</button>
         </nav>
         <div className="md3-sidebar-info">
-          <span><i className="ok" />Monitor configurado</span>
-          <strong>Revisión diaria</strong>
-          <small>07:00 · America/Monterrey</small>
-          <small>DOF y Nuevo León en paralelo</small>
+          <span><i />Activo</span>
+          <strong>Revisión diaria · 07:00</strong>
+          <small>America/Monterrey</small>
         </div>
       </aside>
 
@@ -280,9 +283,9 @@ export function MonitorUiV3({ publications, initialView = "dashboard", selectedI
       <section className="md3-main">
         <header className="md3-topbar">
           <button className="md3-menu" type="button" aria-label="Abrir menú" onClick={() => setMenuOpen((value) => !value)}>{menuOpen ? <X /> : <Menu />}</button>
-          <label className="md3-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar publicación, dependencia, municipio…" /></label>
-          <div className="md3-sync"><span><i />Datos cargados</span><small>{lastSync ? `Última actualización ${dateTimeLabel(lastSync)}` : "Sin sincronización registrada"}</small></div>
-          <button className="md3-primary" type="button" onClick={() => openRun()}><Play size={15} fill="currentColor" />Revisar ahora</button>
+          <label className="md3-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar publicaciones" /></label>
+          <div className="md3-sync"><span><i />Actualizado</span><small>{lastSync ? dateTimeLabel(lastSync) : "Sin registro"}</small></div>
+          <button className="md3-primary" type="button" onClick={() => openRun()}><Play size={15} fill="currentColor" />Ejecutar</button>
         </header>
 
         {view === "dashboard" ? (
@@ -314,6 +317,7 @@ export function MonitorUiV3({ publications, initialView = "dashboard", selectedI
 
         {view === "detail" && selected ? (
           <Detail
+            key={selected.id}
             publication={selected}
             copied={copied}
             onCopy={copyText}
@@ -327,17 +331,16 @@ export function MonitorUiV3({ publications, initialView = "dashboard", selectedI
         <div className="md3-modal-backdrop" onMouseDown={(event) => event.currentTarget === event.target && setRunOpen(false)}>
           <form className="md3-modal" onSubmit={runMonitor}>
             <button className="md3-modal-close" type="button" aria-label="Cerrar" onClick={() => setRunOpen(false)} disabled={runState === "running"}><X size={18} /></button>
-            <span className="md3-modal-icon"><RefreshCw size={20} /></span>
             <h2>Ejecutar revisión</h2>
-            <p>Elige exactamente qué fuente quieres revisar y cuántos días debe consultar el workflow.</p>
+            <p>Selecciona fuente y periodo.</p>
             <div className="md3-modal-grid">
-              <label><span>Fuente</span><select value={runSource} onChange={(event) => setRunSource(event.target.value as RunSource)} disabled={runState === "running"}><option value="all">DOF + Nuevo León</option><option value="dof">Solo DOF</option><option value="nuevo-leon">Solo Nuevo León</option></select></label>
-              <label><span>Días a revisar</span><select value={lookbackDays} onChange={(event) => setLookbackDays(Number(event.target.value))} disabled={runState === "running"}>{[1,2,3,4,5,6,7].map((day) => <option key={day} value={day}>{day} {day === 1 ? "día" : "días"}</option>)}</select></label>
+              <label><span>Fuente</span><select value={runSource} onChange={(event) => setRunSource(event.target.value as RunSource)} disabled={runState === "running"}><option value="all">DOF + Nuevo León</option><option value="dof">DOF</option><option value="nuevo-leon">Nuevo León</option></select></label>
+              <label><span>Días</span><select value={lookbackDays} onChange={(event) => setLookbackDays(Number(event.target.value))} disabled={runState === "running"}>{[1,2,3,4,5,6,7].map((day) => <option key={day} value={day}>{day}</option>)}</select></label>
             </div>
             <label className="md3-secret"><span>Código de autorización</span><input type="password" value={authorization} onChange={(event) => setAuthorization(event.target.value)} placeholder="Código privado" autoComplete="off" required disabled={runState === "running" || runState === "success"} /></label>
             {runState === "error" ? <div className="md3-result error"><CircleAlert size={18} /><span>{runMessage}</span></div> : null}
-            {runState === "success" ? <div className="md3-result success"><CheckCircle2 size={18} /><span>{runMessage}</span>{runActionsUrl ? <a href={runActionsUrl} target="_blank" rel="noreferrer">Ver ejecución <ExternalLink size={13} /></a> : null}</div> : null}
-            <div className="md3-modal-actions"><button type="button" onClick={() => setRunOpen(false)} disabled={runState === "running"}>Cerrar</button>{runState !== "success" ? <button className="md3-primary" type="submit" disabled={runState === "running" || !authorization}>{runState === "running" ? <><RefreshCw className="spin" size={15} />Iniciando…</> : <><Play size={15} fill="currentColor" />Ejecutar workflow</>}</button> : null}</div>
+            {runState === "success" ? <div className="md3-result success"><CheckCircle2 size={18} /><span>{runMessage}</span>{runActionsUrl ? <a href={runActionsUrl} target="_blank" rel="noreferrer">GitHub Actions <ExternalLink size={13} /></a> : null}</div> : null}
+            <div className="md3-modal-actions"><button type="button" onClick={() => setRunOpen(false)} disabled={runState === "running"}>Cerrar</button>{runState !== "success" ? <button className="md3-primary" type="submit" disabled={runState === "running" || !authorization}>{runState === "running" ? <><RefreshCw className="spin" size={15} />Iniciando…</> : <><Play size={15} fill="currentColor" />Ejecutar</>}</button> : null}</div>
           </form>
         </div>
       ) : null}
@@ -355,40 +358,39 @@ function Dashboard({ publications, totals, lastSync, onOpen, onPublications, onR
 }) {
   const latest = publications.slice(0, 6);
   return <main className="md3-page">
-    <section className="md3-hero">
-      <div><span className="md3-kicker"><Sparkles size={14} />Información oficial en un solo lugar</span><h1>Lo importante del DOF,<br /><em>sin perderte entre documentos.</em></h1><p>Monitorea publicaciones, revisa PDFs y ejecuta consultas manuales desde un panel que sí responde a tus acciones.</p></div>
-      <div className="md3-hero-actions"><button className="md3-primary" type="button" onClick={() => onRun()}><Play size={16} fill="currentColor" />Ejecutar revisión</button><button className="md3-secondary" type="button" onClick={onPublications}>Explorar publicaciones <ArrowRight size={15} /></button></div>
+    <section className="md3-dashboard-head">
+      <div><h1>Monitor de diarios oficiales</h1><p>Diario Oficial de la Federación y Periódico Oficial de Nuevo León.</p></div>
+      <div className="md3-head-actions"><button className="md3-secondary" type="button" onClick={onPublications}>Publicaciones <ArrowRight size={15} /></button><button className="md3-primary" type="button" onClick={() => onRun()}><Play size={15} fill="currentColor" />Ejecutar</button></div>
     </section>
 
     <section className="md3-metrics">
       <Metric icon={<FileText />} value={totals.publications} label="Publicaciones" detail={`${totals.dof} DOF · ${totals.nl} Nuevo León`} tone="blue" />
-      <Metric icon={<Download />} value={totals.documents} label="Documentos" detail="PDFs y archivos indexados" tone="cyan" />
-      <Metric icon={<Clock3 />} value={totals.pending} label="Por revisar" detail="Pendientes o en proceso" tone="amber" />
-      <Metric icon={<CheckCircle2 />} value={lastSync ? 1 : 0} label="Sincronización" detail={lastSync ? dateTimeLabel(lastSync) : "Sin registro"} tone="green" />
+      <Metric icon={<Download />} value={totals.documents} label="Archivos" detail="Documentos registrados" tone="cyan" />
+      <Metric icon={<Clock3 />} value={totals.pending} label="Pendientes" detail="Pendientes o en proceso" tone="amber" />
+      <Metric icon={<CheckCircle2 />} value={lastSync ? 1 : 0} label="Última carga" detail={lastSync ? dateTimeLabel(lastSync) : "Sin registro"} tone="green" />
     </section>
 
     <section className="md3-dashboard-grid">
       <article className="md3-panel md3-recent">
-        <div className="md3-panel-head"><div><span className="md3-icon blue"><FileText size={17} /></span><div><h2>Publicaciones recientes</h2><p>Abre directamente el documento que necesites.</p></div></div><button type="button" onClick={onPublications}>Ver todas <ArrowRight size={14} /></button></div>
+        <div className="md3-panel-head"><div><h2>Publicaciones recientes</h2></div><button type="button" onClick={onPublications}>Ver todas <ArrowRight size={14} /></button></div>
         <div className="md3-recent-list">
-          {latest.map((item) => <button key={item.id} type="button" onClick={() => onOpen(item)}><SourceBadge publication={item} /><span className="md3-recent-copy"><strong>{sourceName(item)} · {item.edition || "Sin edición"}</strong><small>{dateLabel(item.date, true)} · {item.documents.length} archivo(s)</small></span><StatusBadge status={item.status} /><ChevronRight size={17} /></button>)}
-          {!latest.length ? <div className="md3-empty">No hay publicaciones que coincidan con la búsqueda.</div> : null}
+          {latest.map((item) => <button key={item.id} type="button" onClick={() => onOpen(item)}><SourceBadge publication={item} /><span className="md3-recent-copy"><strong>{item.edition || sourceName(item)}</strong><small>{dateLabel(item.date, true)} · {item.documents.length} archivo(s)</small></span><StatusBadge status={item.status} /><ChevronRight size={17} /></button>)}
+          {!latest.length ? <div className="md3-empty">Sin resultados.</div> : null}
         </div>
       </article>
 
       <aside className="md3-side-stack">
         <article className="md3-panel md3-schedule">
-          <div className="md3-panel-head"><div><span className="md3-icon violet"><CalendarDays size={17} /></span><div><h2>Automatización real</h2><p>Configuración del workflow.</p></div></div></div>
-          <div className="md3-schedule-time"><strong>07:00</strong><span><b>Revisión diaria</b><small>America/Monterrey</small></span><i>Activa</i></div>
-          <div className="md3-source-runs"><button type="button" onClick={() => onRun({ source: "dof", days: 2 })}><Landmark size={16} /><span><b>DOF</b><small>Ejecutar solo esta fuente</small></span><Play size={15} /></button><button type="button" onClick={() => onRun({ source: "nuevo-leon", days: 2 })}><Building2 size={16} /><span><b>Nuevo León</b><small>Ejecutar solo esta fuente</small></span><Play size={15} /></button></div>
+          <div className="md3-panel-head"><div><h2>Programación</h2></div></div>
+          <div className="md3-schedule-time"><strong>07:00</strong><span><b>Diaria</b><small>America/Monterrey</small></span><i>Activa</i></div>
+          <div className="md3-source-runs"><button type="button" onClick={() => onRun({ source: "dof", days: 2 })}><Landmark size={16} /><span><b>DOF</b><small>Ejecutar</small></span><Play size={15} /></button><button type="button" onClick={() => onRun({ source: "nuevo-leon", days: 2 })}><Building2 size={16} /><span><b>Nuevo León</b><small>Ejecutar</small></span><Play size={15} /></button></div>
         </article>
-        <article className="md3-panel md3-tip"><span className="md3-icon orange"><Filter size={17} /></span><div><h2>Menos botones, más función</h2><p>Las acciones principales ahora filtran, abren documentos, descargan archivos o ejecutan el monitor con parámetros reales.</p></div></article>
       </aside>
     </section>
   </main>;
 }
 
-function Metric({ icon, value, label, detail, tone }: { icon: React.ReactNode; value: number; label: string; detail: string; tone: string }) {
+function Metric({ icon, value, label, detail, tone }: { icon: ReactNode; value: number; label: string; detail: string; tone: string }) {
   return <article className={`md3-metric ${tone}`}><span>{icon}</span><div><strong>{value}</strong><b>{label}</b><small>{detail}</small></div></article>;
 }
 
@@ -406,9 +408,9 @@ function Publications({ publications, total, source, status, query, onQuery, onS
   onOpen: (publication: Publication) => void;
 }) {
   return <main className="md3-page">
-    <section className="md3-page-title"><div><span>Biblioteca oficial</span><h1>Publicaciones</h1><p>{publications.length} de {total} registros visibles con los filtros actuales.</p></div><button className="md3-secondary" type="button" onClick={onExport}><Download size={15} />Exportar CSV</button></section>
+    <section className="md3-page-title"><div><h1>Publicaciones</h1><p>{publications.length} de {total}</p></div><button className="md3-secondary" type="button" onClick={onExport}><Download size={15} />CSV</button></section>
     <section className="md3-filters">
-      <label className="md3-filter-search"><Search size={15} /><input value={query} onChange={(event) => onQuery(event.target.value)} placeholder="Buscar por texto, dependencia, municipio…" /></label>
+      <label className="md3-filter-search"><Search size={15} /><input value={query} onChange={(event) => onQuery(event.target.value)} placeholder="Buscar" /></label>
       <label><span>Fuente</span><select value={source} onChange={(event) => onSource(event.target.value as SourceFilter)}><option value="all">Todas</option><option value="dof">DOF</option><option value="nuevo_leon">Nuevo León</option></select></label>
       <label><span>Estado</span><select value={status} onChange={(event) => onStatus(event.target.value as StatusFilter)}><option value="all">Todos</option><option value="PENDIENTE">Pendiente</option><option value="ENVIADO">Enviado</option><option value="COMPLETADO">Completado</option></select></label>
       <button type="button" onClick={onReset}><X size={14} />Limpiar</button>
@@ -417,41 +419,57 @@ function Publications({ publications, total, source, status, query, onQuery, onS
     <section className="md3-panel md3-table-panel">
       <div className="md3-table-wrap"><table><thead><tr><th>Fuente</th><th>Fecha</th><th>Edición</th><th>Archivos</th><th>Estado</th><th>Actualizado</th><th /></tr></thead><tbody>
         {publications.map((item) => <tr key={item.id}><td><SourceBadge publication={item} /><b>{sourceName(item)}</b></td><td>{dateLabel(item.date, true)}</td><td>{item.edition || "Sin edición"}</td><td>{item.documents.length}</td><td><StatusBadge status={item.status} /></td><td>{dateTimeLabel(item.updatedAt)}</td><td><button className="md3-row-action" type="button" onClick={() => onOpen(item)}>Abrir <ChevronRight size={14} /></button></td></tr>)}
-        {!publications.length ? <tr><td colSpan={7}><div className="md3-empty">No encontramos publicaciones con esos filtros.</div></td></tr> : null}
+        {!publications.length ? <tr><td colSpan={7}><div className="md3-empty">Sin resultados.</div></td></tr> : null}
       </tbody></table></div>
-      <div className="md3-mobile-cards">{publications.map((item) => <button key={item.id} type="button" onClick={() => onOpen(item)}><div><SourceBadge publication={item} /><StatusBadge status={item.status} /></div><strong>{sourceName(item)} · {item.edition || "Sin edición"}</strong><small>{dateLabel(item.date)} · {item.documents.length} archivo(s)</small><span>Abrir detalle <ArrowRight size={14} /></span></button>)}</div>
+      <div className="md3-mobile-cards">{publications.map((item) => <button key={item.id} type="button" onClick={() => onOpen(item)}><div><SourceBadge publication={item} /><StatusBadge status={item.status} /></div><strong>{item.edition || sourceName(item)}</strong><small>{dateLabel(item.date)} · {item.documents.length} archivo(s)</small><span>Abrir <ArrowRight size={14} /></span></button>)}</div>
     </section>
   </main>;
 }
 
 function Detail({ publication, copied, onCopy, onBack, onRun }: { publication: Publication; copied: string; onCopy: (value: string, key: string) => void; onBack: () => void; onRun: () => void }) {
-  const firstDoc = publication.documents[0];
-  const previewUrl = documentUrl(firstDoc, "pdf");
-  const pdfDownload = documentUrl(firstDoc, "pdf", true);
-  const markdown = documentUrl(firstDoc, "markdown");
-  const summary = clean(publication.analysis.summary) || "El análisis todavía no contiene un resumen ejecutivo.";
+  const [activeIndex, setActiveIndex] = useState(0);
+  const documents = publication.documents;
+  const safeIndex = Math.min(activeIndex, Math.max(documents.length - 1, 0));
+  const activeDocument = documents[safeIndex];
+  const previewUrl = documentUrl(activeDocument, "pdf");
+  const pdfDownload = documentUrl(activeDocument, "pdf", true);
+  const markdown = documentUrl(activeDocument, "markdown");
+  const summary = clean(publication.analysis.summary) || "Sin resumen.";
   const agencies = clean(publication.analysis.agencies);
   const municipalities = clean(publication.analysis.municipalities);
   const changes = clean(publication.analysis.changes);
 
   return <main className="md3-page md3-detail-page">
-    <button className="md3-back" type="button" onClick={onBack}><ArrowLeft size={15} />Volver a publicaciones</button>
-    <section className="md3-detail-title"><div><SourceBadge publication={publication} /><StatusBadge status={publication.status} /></div><h1>{sourceName(publication)}</h1><p>{publication.edition || "Sin edición"} · {dateLabel(publication.date)}</p></section>
+    <button className="md3-back" type="button" onClick={onBack}><ArrowLeft size={15} />Publicaciones</button>
+    <section className="md3-detail-title"><div><SourceBadge publication={publication} /><StatusBadge status={publication.status} /></div><h1>{publication.edition || sourceName(publication)}</h1><p>{sourceName(publication)} · {dateLabel(publication.date)}</p></section>
 
     <section className="md3-detail-grid">
       <div className="md3-detail-main">
         <article className="md3-panel md3-pdf-panel">
-          <div className="md3-panel-head"><div><span className="md3-icon blue"><FileText size={17} /></span><div><h2>Documento</h2><p>{firstDoc?.name || "Sin archivo disponible"}</p></div></div>{pdfDownload ? <a className="md3-secondary" href={pdfDownload} target="_blank" rel="noreferrer"><Download size={14} />Descargar</a> : null}</div>
-          {previewUrl ? <iframe className="md3-pdf-frame" src={previewUrl} title={`PDF ${sourceName(publication)}`} /> : <div className="md3-pdf-empty"><FileText size={34} /><b>Vista previa no disponible</b><span>El documento todavía no tiene un enlace PDF utilizable.</span></div>}
+          <div className="md3-document-head">
+            <div><h2>Documentos</h2><p>{documents.length} archivo(s)</p></div>
+            {documents.length > 1 ? <div className="md3-doc-nav"><button type="button" aria-label="Archivo anterior" disabled={safeIndex === 0} onClick={() => setActiveIndex((index) => Math.max(0, index - 1))}><ChevronLeft size={17} /></button><b>{safeIndex + 1} / {documents.length}</b><button type="button" aria-label="Archivo siguiente" disabled={safeIndex >= documents.length - 1} onClick={() => setActiveIndex((index) => Math.min(documents.length - 1, index + 1))}><ChevronRight size={17} /></button></div> : null}
+          </div>
+
+          {documents.length > 1 && documents.length <= 6 ? <div className="md3-doc-switcher" role="tablist" aria-label="Documentos de la publicación">{documents.map((document, index) => <button key={document.id || `${publication.id}-${index}`} type="button" role="tab" aria-selected={safeIndex === index} className={safeIndex === index ? "active" : ""} onClick={() => setActiveIndex(index)}><span>Archivo {index + 1}</span><small>{documentTitle(document, index)}</small></button>)}</div> : null}
+
+          {documents.length > 6 ? <label className="md3-doc-select"><span>Archivo</span><select value={safeIndex} onChange={(event) => setActiveIndex(Number(event.target.value))}>{documents.map((document, index) => <option key={document.id || `${publication.id}-${index}`} value={index}>{index + 1}. {documentTitle(document, index)}</option>)}</select></label> : null}
+
+          <div className="md3-active-document">
+            <div><b>{activeDocument ? documentTitle(activeDocument, safeIndex) : "Sin archivo"}</b><small>{activeDocument?.name || ""}</small></div>
+            <div>{previewUrl ? <a className="md3-secondary" href={previewUrl} target="_blank" rel="noreferrer"><ExternalLink size={14} />Abrir</a> : null}{pdfDownload ? <a className="md3-secondary" href={pdfDownload} target="_blank" rel="noreferrer"><Download size={14} />PDF</a> : null}</div>
+          </div>
+
+          {previewUrl ? <iframe key={previewUrl} className="md3-pdf-frame" src={previewUrl} title={`PDF ${safeIndex + 1} de ${sourceName(publication)}`} /> : <div className="md3-pdf-empty"><FileText size={34} /><b>Vista previa no disponible</b></div>}
         </article>
       </div>
 
       <aside className="md3-detail-side">
-        <article className="md3-panel md3-summary"><div className="md3-panel-head"><div><span className="md3-icon violet"><Sparkles size={17} /></span><div><h2>Resumen ejecutivo</h2><p>Análisis registrado</p></div></div></div><p>{summary}</p>{changes ? <div className="md3-highlight"><b>Cambios detectados</b><span>{changes}</span></div> : null}</article>
+        <article className="md3-panel md3-summary"><div className="md3-panel-head"><div><h2>Resumen</h2></div></div><p>{summary}</p>{changes ? <div className="md3-highlight"><b>Cambios</b><span>{changes}</span></div> : null}</article>
 
-        <article className="md3-panel md3-meta"><h2>Información</h2><dl><div><dt>Fuente</dt><dd>{sourceName(publication)}</dd></div><div><dt>Fecha</dt><dd>{dateLabel(publication.date)}</dd></div><div><dt>Edición</dt><dd>{publication.edition || "Sin edición"}</dd></div><div><dt>Archivos</dt><dd>{publication.documents.length}</dd></div><div><dt>Dependencias</dt><dd>{agencies || "No detectadas"}</dd></div><div><dt>Municipios</dt><dd>{municipalities || "No detectados"}</dd></div>{firstDoc?.sha256 ? <div><dt>SHA-256</dt><dd><code>{firstDoc.sha256.slice(0, 18)}…</code><button type="button" onClick={() => onCopy(firstDoc.sha256, firstDoc.id)}>{copied === firstDoc.id ? <Check size={14} /> : <Copy size={14} />}</button></dd></div> : null}</dl></article>
+        <article className="md3-panel md3-meta"><h2>Información</h2><dl><div><dt>Fuente</dt><dd>{sourceName(publication)}</dd></div><div><dt>Fecha</dt><dd>{dateLabel(publication.date)}</dd></div><div><dt>Edición</dt><dd>{publication.edition || "Sin edición"}</dd></div><div><dt>Archivos</dt><dd>{documents.length}</dd></div><div><dt>Dependencias</dt><dd>{agencies || "No detectadas"}</dd></div><div><dt>Municipios</dt><dd>{municipalities || "No detectados"}</dd></div>{activeDocument?.sha256 ? <div><dt>SHA-256</dt><dd><code>{activeDocument.sha256.slice(0, 18)}…</code><button type="button" aria-label="Copiar SHA-256" onClick={() => onCopy(activeDocument.sha256, activeDocument.id)}>{copied === activeDocument.id ? <Check size={14} /> : <Copy size={14} />}</button></dd></div> : null}</dl></article>
 
-        <article className="md3-panel md3-actions-panel"><h2>Acciones útiles</h2><a className="md3-chat" href={chatUrl(publication)} target="_blank" rel="noreferrer"><MessageCircle size={15} />Analizar con ChatGPT <ExternalLink size={13} /></a>{pdfDownload ? <a href={pdfDownload} target="_blank" rel="noreferrer"><Download size={15} />Descargar PDF</a> : null}{markdown ? <a href={markdown} target="_blank" rel="noreferrer"><FileText size={15} />Abrir Markdown</a> : null}{firstDoc?.sourceUrl ? <a href={firstDoc.sourceUrl} target="_blank" rel="noreferrer"><ExternalLink size={15} />Abrir fuente oficial</a> : null}<button type="button" onClick={onRun}><RefreshCw size={15} />Volver a revisar esta fuente</button></article>
+        <article className="md3-panel md3-actions-panel"><h2>Acciones</h2>{pdfDownload ? <a href={pdfDownload} target="_blank" rel="noreferrer"><Download size={15} />Descargar PDF actual</a> : null}{markdown ? <a href={markdown} target="_blank" rel="noreferrer"><FileText size={15} />Abrir Markdown actual</a> : null}{activeDocument?.sourceUrl ? <a href={activeDocument.sourceUrl} target="_blank" rel="noreferrer"><ExternalLink size={15} />Fuente oficial</a> : null}<a href={chatUrl(publication)} target="_blank" rel="noreferrer"><MessageCircle size={15} />ChatGPT</a><button type="button" onClick={onRun}><RefreshCw size={15} />Revisar fuente</button></article>
       </aside>
     </section>
   </main>;
