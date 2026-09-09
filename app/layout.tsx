@@ -6,6 +6,7 @@ import "./analysis-detail.css";
 import "./mobile-ui.css";
 import "./monitor-ui.css";
 import "./monitor-v3.css";
+import "./latest-report.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 const newsreader = Newsreader({ subsets: ["latin"], variable: "--font-serif" });
