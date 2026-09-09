@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { MonitorUi } from "@/components/monitor-ui";
+import { MonitorUiV3 } from "@/components/monitor-ui-v3";
 import { getPublication } from "@/lib/publications";
 
 export const dynamic = "force-dynamic";
@@ -17,5 +17,5 @@ export default async function PublicationPage({ params }: PageProps) {
   const { id } = await params;
   const publication = await getPublication(decodeURIComponent(id));
   if (!publication) notFound();
-  return <MonitorUi publications={[publication]} initialView="detail" selectedId={publication.id} />;
+  return <MonitorUiV3 publications={[publication]} initialView="detail" selectedId={publication.id} />;
 }

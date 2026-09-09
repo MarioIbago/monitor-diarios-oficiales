@@ -1,4 +1,4 @@
-import { MonitorUi } from "@/components/monitor-ui";
+import { MonitorUiV3 } from "@/components/monitor-ui-v3";
 import { getPublications } from "@/lib/publications";
 
 export const dynamic = "force-dynamic";
@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 export default async function HomePage() {
   try {
     const publications = await getPublications();
-    return <MonitorUi publications={publications} />;
+    return <MonitorUiV3 publications={publications} />;
   } catch (error) {
     const message = error instanceof Error ? error.message : "No se pudieron cargar los datos.";
     return (
