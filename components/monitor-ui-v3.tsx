@@ -168,9 +168,10 @@ function topicEntries(publication: Publication) {
     ["Permisos y licencias", a.permits],
   ] as const;
 
-  return topics
-    .map(([label, value]) => ({ label, detail: usefulTopicValue(value) }))
-    .filter((item): item is { label: string; detail: string } => item.detail !== null);
+  return topics.flatMap(([label, value]) => {
+    const detail = usefulTopicValue(value);
+    return detail === null ? [] : [{ label, detail }];
+  });
 }
 
 function StatusBadge({ status }: { status: string }) {
