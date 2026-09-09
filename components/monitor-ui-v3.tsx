@@ -25,6 +25,7 @@ import {
   Search,
   X,
 } from "lucide-react";
+import { buildPublicationChatUrl } from "@/lib/chatgpt";
 import type { Publication } from "@/lib/types";
 
 export type MonitorView = "dashboard" | "publications" | "detail";
@@ -117,27 +118,60 @@ function documentUrl(document: Publication["documents"][number] | undefined, kin
 
 function documentTitle(document: Publication["documents"][number], index: number) {
   const part = document.part?.trim();
-  if (part) return part;
+  if (part) return `Parte ${part}`;
   const name = document.name?.trim();
   return name || `Archivo ${index + 1}`;
 }
 
-function chatUrl(publication: Publication) {
-  const summary = clean(publication.analysis.summary);
-  const links = publication.documents
-    .map((doc) => doc.pdfDriveUrl || doc.mdDriveUrl || doc.sourceUrl)
-    .filter(Boolean)
-    .join("\n");
-  const prompt = [
-    "Analiza esta publicación oficial en español claro.",
-    `Fuente: ${sourceName(publication)}`,
-    `Fecha: ${dateLabel(publication.date)}`,
-    `Edición: ${publication.edition || "Sin edición"}`,
-    summary ? `Resumen existente: ${summary}` : "No hay resumen existente.",
-    links ? `Documentos:\n${links}` : "No hay enlaces de documentos.",
-    "Identifica cambios, obligaciones, plazos, autoridades involucradas y posibles impactos.",
-  ].join("\n\n");
-  return `https://chatgpt.com/?q=${encodeURIComponent(prompt)}`;
+function hasAnalysis(publication: Publication | undefined) {
+  if (!publication) return false;
+  const analysis = publication.analysis;
+  return Boolean(
+    clean(analysis.summary) ||
+    clean(analysis.changes) ||
+    clean(analysis.mobility) ||
+    clean(analysis.construction) ||
+    clean(analysis.urbanism) ||
+    clean(analysis.infrastructure) ||
+    clean(analysis.housing) ||
+    clean(analysis.landUse) ||
+    clean(analysis.permits),
+  );
+}
+
+function usefulTopicValue(value = "") {
+  const text = clean(value);
+  const normalized = normalize(text).replace(/[.]/g, "").trim();
+  if (!text || normalized === "no" || normalized === "n/a" || normalized === "ninguno" || normalized === "ninguna") return null;
+  return normalized === "si" ? "" : text;
+}
+
+function splitList(value = "") {
+  const text = clean(value);
+  if (!text) return [];
+  const separator = text.includes("\n") ? /\n+/ : /\s*;\s*|\s*,\s*/;
+  return text
+    .split(separator)
+    .map((item) => item.replace(/^[-•]\s*/, "").trim())
+    .filter(Boolean);
+}
+
+function topicEntries(publication: Publication) {
+  const a = publication.analysis;
+  const topics = [
+    ["Movilidad", a.mobility],
+    ["Construcción", a.construction],
+    ["Urbanismo", a.urbanism],
+    ["Infraestructura", a.infrastructure],
+    ["Vivienda", a.housing],
+    ["Uso de suelo", a.landUse],
+    ["Permisos y licencias", a.permits],
+  ] as const;
+
+  return topics.flatMap(([label, value]) => {
+    const detail = usefulTopicValue(value);
+    return detail === null ? [] : [{ label, detail }];
+  });
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -171,10 +205,12 @@ export function MonitorUiV3({ publications, initialView = "dashboard", selectedI
       if (source !== "all" && publication.source !== source) return false;
       if (status !== "all" && publication.status !== status) return false;
       if (!term) return true;
+      const a = publication.analysis;
       return normalize([
         sourceName(publication), publication.date, publication.edition, publication.status,
-        publication.analysis.summary, publication.analysis.changes, publication.analysis.agencies,
-        publication.analysis.municipalities, ...publication.documents.map((doc) => doc.name),
+        a.summary, a.changes, a.agencies, a.municipalities, a.mobility, a.construction,
+        a.urbanism, a.infrastructure, a.housing, a.landUse, a.permits, a.historicalComparison,
+        ...publication.documents.map((doc) => doc.name),
       ].join(" ")).includes(term);
     });
   }, [publications, query, source, status]);
@@ -291,6 +327,7 @@ export function MonitorUiV3({ publications, initialView = "dashboard", selectedI
         {view === "dashboard" ? (
           <Dashboard
             publications={filtered}
+            allPublications={publications}
             totals={{ publications: publications.length, documents: documentCount, pending: pendingCount, dof: dofCount, nl: nlCount }}
             lastSync={lastSync}
             onOpen={openDetail}
@@ -348,29 +385,36 @@ export function MonitorUiV3({ publications, initialView = "dashboard", selectedI
   );
 }
 
-function Dashboard({ publications, totals, lastSync, onOpen, onPublications, onRun }: {
+function Dashboard({ publications, allPublications, totals, lastSync, onOpen, onPublications, onRun }: {
   publications: Publication[];
+  allPublications: Publication[];
   totals: { publications: number; documents: number; pending: number; dof: number; nl: number };
   lastSync: string;
   onOpen: (publication: Publication) => void;
   onPublications: () => void;
   onRun: (options?: { source?: RunSource; days?: number }) => void;
 }) {
-  const latest = publications.slice(0, 6);
+  const latest = publications.slice(0, 5);
+  const newest = allPublications[0];
+  const latestAnalyzed = allPublications.find((item) => hasAnalysis(item));
+  const report = hasAnalysis(newest) ? newest : latestAnalyzed;
+
   return <main className="md3-page">
     <section className="md3-dashboard-head">
-      <div><h1>Monitor de diarios oficiales</h1><p>Diario Oficial de la Federación y Periódico Oficial de Nuevo León.</p></div>
+      <div><h1>Monitor de diarios oficiales</h1><p>Última publicación y análisis consolidado.</p></div>
       <div className="md3-head-actions"><button className="md3-secondary" type="button" onClick={onPublications}>Publicaciones <ArrowRight size={15} /></button><button className="md3-primary" type="button" onClick={() => onRun()}><Play size={15} fill="currentColor" />Ejecutar</button></div>
     </section>
 
-    <section className="md3-metrics">
+    <LatestReport newest={newest} report={report} onOpen={onOpen} />
+
+    <section className="md3-metrics md3-metrics-compact">
       <Metric icon={<FileText />} value={totals.publications} label="Publicaciones" detail={`${totals.dof} DOF · ${totals.nl} Nuevo León`} tone="blue" />
       <Metric icon={<Download />} value={totals.documents} label="Archivos" detail="Documentos registrados" tone="cyan" />
-      <Metric icon={<Clock3 />} value={totals.pending} label="Pendientes" detail="Pendientes o en proceso" tone="amber" />
+      <Metric icon={<Clock3 />} value={totals.pending} label="En proceso" detail="Pendientes o enviados" tone="amber" />
       <Metric icon={<CheckCircle2 />} value={lastSync ? 1 : 0} label="Última carga" detail={lastSync ? dateTimeLabel(lastSync) : "Sin registro"} tone="green" />
     </section>
 
-    <section className="md3-dashboard-grid">
+    <section className="md3-dashboard-grid md3-dashboard-grid-lower">
       <article className="md3-panel md3-recent">
         <div className="md3-panel-head"><div><h2>Publicaciones recientes</h2></div><button type="button" onClick={onPublications}>Ver todas <ArrowRight size={14} /></button></div>
         <div className="md3-recent-list">
@@ -388,6 +432,58 @@ function Dashboard({ publications, totals, lastSync, onOpen, onPublications, onR
       </aside>
     </section>
   </main>;
+}
+
+function LatestReport({ newest, report, onOpen }: { newest?: Publication; report?: Publication; onOpen: (publication: Publication) => void }) {
+  if (!newest) return <section className="md3-panel md3-latest-report"><div className="md3-empty">No hay publicaciones registradas.</div></section>;
+
+  const reportIsCurrent = report?.id === newest.id;
+  const topics = report ? topicEntries(report) : [];
+  const municipalities = report ? splitList(report.analysis.municipalities) : [];
+  const agencies = report ? splitList(report.analysis.agencies) : [];
+  const summary = report ? clean(report.analysis.summary) : "";
+  const changes = report ? clean(report.analysis.changes) : "";
+  const history = report ? clean(report.analysis.historicalComparison) : "";
+  const modifies = report ? clean(report.analysis.modifiesPrevious) : "";
+
+  return <section className="md3-latest-stack">
+    {!reportIsCurrent ? <article className="md3-current-item">
+      <div><span>Última publicación detectada</span><strong>{newest.edition || sourceName(newest)}</strong><small>{sourceName(newest)} · {dateLabel(newest.date)} · {newest.documents.length} archivo(s)</small></div>
+      <div><StatusBadge status={newest.status} /><button type="button" onClick={() => onOpen(newest)}>Abrir <ChevronRight size={14} /></button></div>
+    </article> : null}
+
+    {report ? <article className="md3-panel md3-latest-report">
+      <header className="md3-report-header">
+        <div className="md3-report-id"><SourceBadge publication={report} /><div><span>{reportIsCurrent ? "Última publicación" : "Último análisis disponible"}</span><h2>{report.edition || sourceName(report)}</h2><p>{sourceName(report)} · {dateLabel(report.date)} · {report.documents.length} archivo(s)</p></div></div>
+        <div className="md3-report-actions"><StatusBadge status={report.status} /><button className="md3-secondary" type="button" onClick={() => onOpen(report)}>Abrir detalle</button><a className="md3-primary" href={buildPublicationChatUrl(report)} target="_blank" rel="noreferrer"><MessageCircle size={15} />ChatGPT</a></div>
+      </header>
+
+      <div className="md3-report-layout">
+        <section className="md3-report-main">
+          <div className="md3-report-section">
+            <h3>Resumen</h3>
+            {summary ? <div className="md3-analysis-copy">{summary}</div> : <p className="md3-muted-copy">Análisis pendiente.</p>}
+          </div>
+
+          {changes ? <div className="md3-report-section"><h3>Cambios</h3><div className="md3-analysis-copy">{changes}</div></div> : null}
+
+          {topics.length ? <div className="md3-report-section"><h3>Temas</h3><div className="md3-topic-list">{topics.map((topic) => <div key={topic.label}><b>{topic.label}</b>{topic.detail ? <span>{topic.detail}</span> : null}</div>)}</div></div> : null}
+
+          {(modifies || history) ? <details className="md3-history"><summary>Antecedentes</summary>{modifies ? <div><b>Modifica publicaciones anteriores</b><p>{modifies}</p></div> : null}{history ? <div><b>Comparación histórica</b><p>{history}</p></div> : null}</details> : null}
+        </section>
+
+        <aside className="md3-report-side">
+          {municipalities.length ? <section><h3>Municipios</h3><ul>{municipalities.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul></section> : null}
+          {agencies.length ? <section><h3>Dependencias</h3><ul>{agencies.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul></section> : null}
+          <section><h3>Documentos</h3><div className="md3-report-docs">{report.documents.map((document, index) => {
+            const md = documentUrl(document, "markdown");
+            const pdf = documentUrl(document, "pdf");
+            return <div key={document.id || `${report.id}-${index}`}><span><b>{documentTitle(document, index)}</b><small>{document.name}</small></span>{md ? <a href={md} target="_blank" rel="noreferrer">MD <ExternalLink size={12} /></a> : pdf ? <a href={pdf} target="_blank" rel="noreferrer">PDF <ExternalLink size={12} /></a> : null}</div>;
+          })}</div></section>
+        </aside>
+      </div>
+    </article> : <article className="md3-panel md3-latest-report"><div className="md3-empty">Todavía no hay un análisis disponible.</div></article>}
+  </section>;
 }
 
 function Metric({ icon, value, label, detail, tone }: { icon: ReactNode; value: number; label: string; detail: string; tone: string }) {
@@ -438,6 +534,7 @@ function Detail({ publication, copied, onCopy, onBack, onRun }: { publication: P
   const agencies = clean(publication.analysis.agencies);
   const municipalities = clean(publication.analysis.municipalities);
   const changes = clean(publication.analysis.changes);
+  const topics = topicEntries(publication);
 
   return <main className="md3-page md3-detail-page">
     <button className="md3-back" type="button" onClick={onBack}><ArrowLeft size={15} />Publicaciones</button>
@@ -457,7 +554,7 @@ function Detail({ publication, copied, onCopy, onBack, onRun }: { publication: P
 
           <div className="md3-active-document">
             <div><b>{activeDocument ? documentTitle(activeDocument, safeIndex) : "Sin archivo"}</b><small>{activeDocument?.name || ""}</small></div>
-            <div>{previewUrl ? <a className="md3-secondary" href={previewUrl} target="_blank" rel="noreferrer"><ExternalLink size={14} />Abrir</a> : null}{pdfDownload ? <a className="md3-secondary" href={pdfDownload} target="_blank" rel="noreferrer"><Download size={14} />PDF</a> : null}</div>
+            <div>{markdown ? <a className="md3-secondary" href={markdown} target="_blank" rel="noreferrer"><FileText size={14} />MD</a> : null}{pdfDownload ? <a className="md3-secondary" href={pdfDownload} target="_blank" rel="noreferrer"><Download size={14} />PDF</a> : null}</div>
           </div>
 
           {previewUrl ? <iframe key={previewUrl} className="md3-pdf-frame" src={previewUrl} title={`PDF ${safeIndex + 1} de ${sourceName(publication)}`} /> : <div className="md3-pdf-empty"><FileText size={34} /><b>Vista previa no disponible</b></div>}
@@ -465,11 +562,11 @@ function Detail({ publication, copied, onCopy, onBack, onRun }: { publication: P
       </div>
 
       <aside className="md3-detail-side">
-        <article className="md3-panel md3-summary"><div className="md3-panel-head"><div><h2>Resumen</h2></div></div><p>{summary}</p>{changes ? <div className="md3-highlight"><b>Cambios</b><span>{changes}</span></div> : null}</article>
+        <article className="md3-panel md3-summary"><div className="md3-panel-head"><div><h2>Resumen</h2></div></div><div className="md3-analysis-copy">{summary}</div>{changes ? <div className="md3-highlight"><b>Cambios</b><span>{changes}</span></div> : null}{topics.length ? <div className="md3-detail-topics"><b>Temas</b>{topics.map((topic) => <span key={topic.label}>{topic.label}{topic.detail ? ` · ${topic.detail}` : ""}</span>)}</div> : null}</article>
 
         <article className="md3-panel md3-meta"><h2>Información</h2><dl><div><dt>Fuente</dt><dd>{sourceName(publication)}</dd></div><div><dt>Fecha</dt><dd>{dateLabel(publication.date)}</dd></div><div><dt>Edición</dt><dd>{publication.edition || "Sin edición"}</dd></div><div><dt>Archivos</dt><dd>{documents.length}</dd></div><div><dt>Dependencias</dt><dd>{agencies || "No detectadas"}</dd></div><div><dt>Municipios</dt><dd>{municipalities || "No detectados"}</dd></div>{activeDocument?.sha256 ? <div><dt>SHA-256</dt><dd><code>{activeDocument.sha256.slice(0, 18)}…</code><button type="button" aria-label="Copiar SHA-256" onClick={() => onCopy(activeDocument.sha256, activeDocument.id)}>{copied === activeDocument.id ? <Check size={14} /> : <Copy size={14} />}</button></dd></div> : null}</dl></article>
 
-        <article className="md3-panel md3-actions-panel"><h2>Acciones</h2>{pdfDownload ? <a href={pdfDownload} target="_blank" rel="noreferrer"><Download size={15} />Descargar PDF actual</a> : null}{markdown ? <a href={markdown} target="_blank" rel="noreferrer"><FileText size={15} />Abrir Markdown actual</a> : null}{activeDocument?.sourceUrl ? <a href={activeDocument.sourceUrl} target="_blank" rel="noreferrer"><ExternalLink size={15} />Fuente oficial</a> : null}<a href={chatUrl(publication)} target="_blank" rel="noreferrer"><MessageCircle size={15} />ChatGPT</a><button type="button" onClick={onRun}><RefreshCw size={15} />Revisar fuente</button></article>
+        <article className="md3-panel md3-actions-panel"><h2>Acciones</h2>{markdown ? <a href={markdown} target="_blank" rel="noreferrer"><FileText size={15} />Abrir Markdown actual</a> : null}{pdfDownload ? <a href={pdfDownload} target="_blank" rel="noreferrer"><Download size={15} />Descargar PDF actual</a> : null}{activeDocument?.sourceUrl ? <a href={activeDocument.sourceUrl} target="_blank" rel="noreferrer"><ExternalLink size={15} />Fuente oficial</a> : null}<a href={buildPublicationChatUrl(publication)} target="_blank" rel="noreferrer"><MessageCircle size={15} />ChatGPT · todos los MD</a><button type="button" onClick={onRun}><RefreshCw size={15} />Revisar fuente</button></article>
       </aside>
     </section>
   </main>;
