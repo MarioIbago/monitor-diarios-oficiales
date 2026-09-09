@@ -9,6 +9,7 @@ import type {
 
 const EMPTY_ANALYSIS: PublicationAnalysis = {
   relevant: "",
+  mobility: "",
   construction: "",
   urbanism: "",
   infrastructure: "",
@@ -119,6 +120,7 @@ function documentFromMonitor(row: Record<string, string>): PublicationDocument {
 function analysisFromRow(row: Record<string, string>): PublicationAnalysis {
   return {
     relevant: row["Relevante"] || "",
+    mobility: row["Movilidad"] || "",
     construction: row["Construccion"] || "",
     urbanism: row["Urbanismo"] || "",
     infrastructure: row["Infraestructura"] || "",
@@ -250,10 +252,10 @@ export async function getPublications(): Promise<Publication[]> {
     const firstId = ids[firstIndex] || key;
     const source = (sources[firstIndex] || firstId.split(":")[0] || "") as SourceKey;
     const existing = publications.get(key);
-    const monitorStillPending = existing && existing.status !== "COMPLETADO";
-    const status = monitorStillPending
-      ? existing.status
-      : (row["Analizado IA"] || existing?.status || "PENDIENTE").toUpperCase();
+    const analysisStatus = (row["Analizado IA"] || "").trim().toUpperCase();
+    const status = analysisStatus === "COMPLETADO"
+      ? "COMPLETADO"
+      : normalizeStatus([existing?.status || "", analysisStatus || "PENDIENTE"]);
 
     publications.set(key, {
       id: key,
