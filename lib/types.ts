@@ -14,6 +14,7 @@ export type PublicationDocument = {
 
 export type PublicationAnalysis = {
   relevant: string;
+  mobility: string;
   construction: string;
   urbanism: string;
   infrastructure: string;
