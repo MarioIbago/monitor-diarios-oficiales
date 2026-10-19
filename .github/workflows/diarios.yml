@@ -2,7 +2,7 @@ name: Monitor diarios oficiales
 
 on:
   schedule:
-    - cron: "0 7 * * *"
+    - cron: "17 6 * * *"
       timezone: "America/Monterrey"
   workflow_dispatch:
     inputs:
@@ -46,11 +46,12 @@ jobs:
       GOOGLE_SHEET_ID: ${{ vars.GOOGLE_SHEET_ID }}
       GOOGLE_SHEET_TAB: ${{ vars.GOOGLE_SHEET_TAB || 'Monitor' }}
       GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ vars.GOOGLE_DRIVE_ROOT_FOLDER_ID }}
-      # La ejecución diaria de las 07:00 revisa ayer + hoy. Esto cubre
-      # operacionalmente la ventana 07:01 de ayer -> 07:00 de hoy; las
+      # La ejecución diaria se programa a las 06:17 America/Monterrey para
+      # evitar el minuto 00, que suele tener más congestión en GitHub Actions.
+      # Revisa ayer + hoy; las
       # publicaciones ya registradas no vuelven a escribirse en Sheets.
       LOOKBACK_DAYS: ${{ inputs.lookback_days || vars.LOOKBACK_DAYS || '2' }}
-      OCR_DPI: ${{ vars.OCR_DPI || '300' }}
+      OCR_DPI: "300"
       OCR_WORKERS: ${{ vars.OCR_WORKERS || '4' }}
       OMP_THREAD_LIMIT: "1"
 
