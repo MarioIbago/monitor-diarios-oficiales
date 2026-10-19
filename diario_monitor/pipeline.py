@@ -35,13 +35,13 @@ class Pipeline:
         client: HttpClient,
         store: GoogleStore,
         sources: list[object],
-        ocr_dpi: int = 150,
+        ocr_dpi: int = 300,
         ocr_workers: int = 4,
     ) -> None:
         self.client = client
         self.store = store
         self.sources = sources
-        self.ocr_dpi = ocr_dpi
+        self.ocr_dpi = max(250, ocr_dpi)
         self.ocr_workers = ocr_workers
 
     def run(self, start: date, end: date) -> Summary:
@@ -55,8 +55,7 @@ class Pipeline:
 
                 # Si en la ventana diaria (ayer + hoy) no hubo publicación,
                 # buscar hasta 4 días hacia atrás y usar SOLO la fecha más
-                # reciente que sí tenga ejemplares. Esto cubre fines de semana,
-                # festivos o días sin publicación.
+                # reciente que sí tenga ejemplares.
                 if not issues:
                     fallback_start = end - timedelta(days=FALLBACK_LOOKBACK_DAYS - 1)
                     fallback_issues = source.discover(fallback_start, end)
@@ -95,6 +94,16 @@ class Pipeline:
                         )
         return summary
 
+    @staticmethod
+    def _existing_is_complete(existing: object | None) -> bool:
+        if not existing:
+            return False
+        return (
+            existing.get("OCR Estado").strip().upper() == "COMPLETADO"
+            and bool(existing.get("PDF File ID").strip())
+            and bool(existing.get("MD File ID").strip())
+        )
+
     def _process_document(self, issue: Issue, document: Document) -> str:
         document_id = stable_document_id(issue, document)
         existing = self.store.find(document_id)
@@ -106,22 +115,42 @@ class Pipeline:
             md_path = tmpdir / f"{base}.md"
 
             download = self.client.download_pdf(document.url, pdf_path)
+            same_hash = bool(existing and existing.get("SHA256") == download.sha256)
 
-            if existing and existing.get("SHA256") == download.sha256:
-                # Ya está exactamente el mismo documento en el registro.
-                # No escribir nada en Sheets: así Apps Script / Workspace Studio
-                # NO vuelve a dispararse.
-                print(f"UNCHANGED {document_id} {download.sha256[:12]}")
+            # Un SHA igual SOLO se considera terminado si también existe un OCR
+            # completo y ambos archivos están registrados en Drive.
+            if same_hash and self._existing_is_complete(existing):
+                print(f"UNCHANGED {document_id} {download.sha256[:12]} OCR=COMPLETADO")
+                self.store.mark_verified_unchanged(document_id)
                 return "unchanged"
 
-            print(f"OCR {document_id}: {pdf_path.name}")
-            page_count = pdf_to_markdown(
+            if same_hash and existing:
+                print(
+                    f"REPROCESS {document_id}: SHA sin cambios pero OCR/Drive incompleto; "
+                    "se regenerará el Markdown desde imágenes"
+                )
+
+            print(
+                f"OCR VISUAL {document_id}: PDF -> PNG por página -> Tesseract "
+                f"({self.ocr_dpi} DPI)"
+            )
+            ocr_result = pdf_to_markdown(
                 pdf_path,
                 md_path,
                 dpi=self.ocr_dpi,
                 max_workers=self.ocr_workers,
             )
-            print(f"OCR OK {document_id}: {page_count} páginas")
+            print(
+                f"OCR OK {document_id}: páginas PDF={ocr_result.page_count}, "
+                f"páginas OCR={ocr_result.pages_ocr}, "
+                f"reintentos={list(ocr_result.retried_pages)}"
+            )
+
+            if ocr_result.pages_ocr != ocr_result.page_count:
+                raise RuntimeError(
+                    f"Cobertura OCR incompleta: PDF={ocr_result.page_count}, "
+                    f"OCR={ocr_result.pages_ocr}"
+                )
 
             folder_id = self.store.document_folder(
                 source=issue.source,
@@ -129,17 +158,32 @@ class Pipeline:
                 month=issue.publication_date.month,
             )
 
-            if existing and existing.get("PDF File ID") and existing.get("MD File ID"):
-                pdf_response = self.store.update_file(
-                    existing.get("PDF File ID"), pdf_path, mime_type=PDF_MIME
-                )
-                md_response = self.store.update_file(
-                    existing.get("MD File ID"), md_path, mime_type=MD_MIME
-                )
+            if existing:
+                pdf_file_id = existing.get("PDF File ID").strip()
+                md_file_id = existing.get("MD File ID").strip()
+
+                if pdf_file_id:
+                    pdf_response = self.store.update_file(
+                        pdf_file_id, pdf_path, mime_type=PDF_MIME
+                    )
+                else:
+                    pdf_response = self.store.create_file(
+                        pdf_path, parent_id=folder_id, mime_type=PDF_MIME
+                    )
                 pdf_file_id = pdf_response["id"]
+
+                if md_file_id:
+                    md_response = self.store.update_file(
+                        md_file_id, md_path, mime_type=MD_MIME
+                    )
+                else:
+                    md_response = self.store.create_file(
+                        md_path, parent_id=folder_id, mime_type=MD_MIME
+                    )
                 md_file_id = md_response["id"]
+
                 revision = int(existing.get("Revisión") or "1") + 1
-                change = "ACTUALIZADO"
+                change = "REPROCESADO" if same_hash else "ACTUALIZADO"
                 state = "changed"
             else:
                 pdf_response = self.store.create_file(
@@ -172,10 +216,8 @@ class Pipeline:
             )
             print(
                 f"{change} {document_id} -> Drive / Sheet; "
+                f"OCR visual completo {ocr_result.pages_ocr}/{ocr_result.page_count} páginas; "
                 f"esperando {SHEET_WRITE_DELAY_SECONDS}s antes de permitir otra escritura"
             )
-            # Cada fila escrita puede disparar una automatización distinta.
-            # Espaciarlas evita que varias ejecuciones de Apps Script/Studio
-            # compitan entre sí por el mismo Sheet.
             time.sleep(SHEET_WRITE_DELAY_SECONDS)
             return state
