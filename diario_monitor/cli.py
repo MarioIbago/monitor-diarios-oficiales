@@ -22,7 +22,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--from-date", type=date.fromisoformat)
     p.add_argument("--to-date", type=date.fromisoformat)
     p.add_argument("--source", choices=("all", "dof", "nuevo-leon"), default="all")
-    p.add_argument("--ocr-dpi", type=int, default=int(os.getenv("OCR_DPI", "150")))
+    p.add_argument("--ocr-dpi", type=int, default=int(os.getenv("OCR_DPI", "300")))
     p.add_argument("--ocr-workers", type=int, default=int(os.getenv("OCR_WORKERS", "4")))
     p.add_argument("--json", action="store_true")
     return p
