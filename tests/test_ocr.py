@@ -25,7 +25,7 @@ class OcrVisualTests(unittest.TestCase):
                     f"Contenido visual de prueba pagina {number}",
                     fontsize=12,
                 )
-            document.save(pdf_path)
+            document.save(str(pdf_path))
             document.close()
 
             fake_ocr = (
