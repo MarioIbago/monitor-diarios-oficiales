@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import random
 import re
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -15,6 +17,32 @@ from googleapiclient.http import MediaFileUpload
 FOLDER_MIME = "application/vnd.google-apps.folder"
 PDF_MIME = "application/pdf"
 MD_MIME = "text/markdown"
+
+UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024  # 8 MiB, múltiplo de 256 KiB
+UPLOAD_MAX_RETRIES = 8
+RETRYABLE_HTTP_STATUS = {408, 429, 500, 502, 503, 504}
+
+
+def _upload_error_status(exc: Exception) -> int | None:
+    response = getattr(exc, "resp", None)
+    value = getattr(response, "status", None)
+    if value is None:
+        value = getattr(exc, "status_code", None)
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_retryable_upload_error(exc: Exception) -> bool:
+    if isinstance(exc, (TimeoutError, OSError, ConnectionError)):
+        return True
+    status = _upload_error_status(exc)
+    if status in RETRYABLE_HTTP_STATUS:
+        return True
+    # google-api-python-client puede envolver fallos 5xx de un upload
+    # resumible como ResumableUploadError sin conservar siempre un status útil.
+    return type(exc).__name__ == "ResumableUploadError"
 
 HEADERS = [
     "Documento ID",
@@ -186,24 +214,116 @@ class GoogleStore:
         year_id = self.ensure_folder(source_id, f"{year:04d}")
         return self.ensure_folder(year_id, f"{month:02d}")
 
+    def _find_file_by_name(self, *, parent_id: str, name: str) -> dict[str, str] | None:
+        escaped = name.replace("'", "\\'")
+        query = (
+            f"'{parent_id}' in parents and name = '{escaped}' and trashed = false"
+        )
+        response = self.drive.files().list(
+            q=query,
+            spaces="drive",
+            fields="files(id,name,webViewLink,modifiedTime)",
+            orderBy="modifiedTime desc",
+            pageSize=10,
+            includeItemsFromAllDrives=True,
+            supportsAllDrives=True,
+        ).execute(num_retries=5)
+        files = response.get("files", [])
+        return files[0] if files else None
+
+    def _execute_resumable_upload(self, request: Any, *, label: str) -> dict[str, str]:
+        response: dict[str, str] | None = None
+        consecutive_errors = 0
+
+        while response is None:
+            try:
+                status, response = request.next_chunk(num_retries=3)
+                consecutive_errors = 0
+                if status is not None:
+                    try:
+                        percent = int(status.progress() * 100)
+                        print(f"DRIVE UPLOAD {label}: {percent}%")
+                    except Exception:
+                        pass
+            except Exception as exc:
+                if not _is_retryable_upload_error(exc):
+                    raise
+                consecutive_errors += 1
+                if consecutive_errors > UPLOAD_MAX_RETRIES:
+                    raise
+                delay = min(60.0, (2 ** min(consecutive_errors, 6))) + random.random()
+                status_code = _upload_error_status(exc)
+                print(
+                    f"DRIVE RETRY {label}: intento {consecutive_errors}/"
+                    f"{UPLOAD_MAX_RETRIES}, status={status_code or 'n/a'}, "
+                    f"error={type(exc).__name__}; esperando {delay:.1f}s"
+                )
+                time.sleep(delay)
+
+        file_id = str(response.get("id") or "").strip()
+        if not file_id:
+            raise RuntimeError(f"Drive no devolvió ID después de subir {label}")
+
+        # Verificación final independiente: evita marcar COMPLETADO si la API
+        # devolvió una respuesta ambigua tras un upload grande.
+        verified = self.drive.files().get(
+            fileId=file_id,
+            fields="id,name,webViewLink,size,modifiedTime",
+            supportsAllDrives=True,
+        ).execute(num_retries=5)
+        print(
+            f"DRIVE OK {label}: id={verified.get('id')} "
+            f"size={verified.get('size', 'n/a')}"
+        )
+        return {
+            "id": str(verified["id"]),
+            "name": str(verified.get("name") or response.get("name") or label),
+            "webViewLink": str(
+                verified.get("webViewLink") or response.get("webViewLink") or ""
+            ),
+        }
+
     def create_file(self, path: Path, *, parent_id: str, mime_type: str) -> dict[str, str]:
-        media = MediaFileUpload(str(path), mimetype=mime_type, resumable=True)
-        return self.drive.files().create(
+        # Idempotencia: si un intento anterior alcanzó a crear el archivo pero
+        # falló antes de actualizar Sheets, reutilizamos ese archivo por nombre
+        # en vez de crear un duplicado.
+        existing = self._find_file_by_name(parent_id=parent_id, name=path.name)
+        if existing:
+            print(
+                f"DRIVE REUSE {path.name}: ya existe {existing['id']}; "
+                "se reemplazará su contenido"
+            )
+            return self.update_file(existing["id"], path, mime_type=mime_type)
+
+        media = MediaFileUpload(
+            str(path),
+            mimetype=mime_type,
+            chunksize=UPLOAD_CHUNK_SIZE,
+            resumable=True,
+        )
+        request = self.drive.files().create(
             body={"name": path.name, "parents": [parent_id]},
             media_body=media,
             fields="id,name,webViewLink",
             supportsAllDrives=True,
-        ).execute()
+        )
+        return self._execute_resumable_upload(request, label=path.name)
 
     def update_file(self, file_id: str, path: Path, *, mime_type: str) -> dict[str, str]:
-        media = MediaFileUpload(str(path), mimetype=mime_type, resumable=True)
-        return self.drive.files().update(
+        media = MediaFileUpload(
+            str(path),
+            mimetype=mime_type,
+            chunksize=UPLOAD_CHUNK_SIZE,
+            resumable=True,
+        )
+        request = self.drive.files().update(
             fileId=file_id,
             body={"name": path.name},
             media_body=media,
             fields="id,name,webViewLink",
             supportsAllDrives=True,
-        ).execute()
+        )
+        return self._execute_resumable_upload(request, label=path.name)
 
     @staticmethod
     def drive_url(file_id: str, response: dict[str, Any] | None = None) -> str:
