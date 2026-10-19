@@ -50,7 +50,7 @@ jobs:
       # operacionalmente la ventana 07:01 de ayer -> 07:00 de hoy; las
       # publicaciones ya registradas no vuelven a escribirse en Sheets.
       LOOKBACK_DAYS: ${{ inputs.lookback_days || vars.LOOKBACK_DAYS || '2' }}
-      OCR_DPI: ${{ vars.OCR_DPI || '150' }}
+      OCR_DPI: ${{ vars.OCR_DPI || '300' }}
       OCR_WORKERS: ${{ vars.OCR_WORKERS || '4' }}
       OMP_THREAD_LIMIT: "1"
 
@@ -100,6 +100,7 @@ jobs:
         if: steps.selected.outputs.run == 'true'
         shell: bash
         run: |
+          echo "OCR obligatorio: PDF -> PNG por página -> OCR visual -> Markdown (DPI=$OCR_DPI)"
           python -m diario_monitor \
             --source "${{ matrix.source }}" \
             --lookback-days "$LOOKBACK_DAYS" \
