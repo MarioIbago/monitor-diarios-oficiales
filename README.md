@@ -7,8 +7,8 @@ Pipeline diario para GitHub Actions:
 3. Identifica cada documento con un ID estable.
 4. Compara SHA-256 contra Google Sheets.
 5. Si no cambió: no hace OCR y no toca Drive.
-6. Si es nuevo o cambió: hace OCR forzado de **todas** las páginas.
-7. Guarda únicamente el PDF original y su `.md` en Google Drive.
+6. Si es nuevo, cambió o quedó incompleto: convierte **cada página del PDF a PNG**, ejecuta OCR visual sobre esas imágenes a 300 DPI y valida cobertura completa.
+7. Guarda únicamente el PDF original y su `.md` en Google Drive. Las subidas grandes usan upload resumible por bloques con reintentos y verificación final.
 8. Registra/actualiza Google Sheets y pone `IA Estado = PENDIENTE`.
 9. Workspace Studio puede usar ese cambio como disparador.
 
@@ -82,7 +82,7 @@ GOOGLE_DRIVE_ROOT_FOLDER_ID = ID de la carpeta Automatizado
 GOOGLE_SHEET_ID             = ID de Registro Diarios Oficiales
 GOOGLE_SHEET_TAB            = Monitor
 LOOKBACK_DAYS               = 7
-OCR_DPI                     = 150
+OCR_DPI                     = 300
 OCR_WORKERS                 = 4
 ```
 
@@ -94,11 +94,11 @@ La pestaña `Monitor` se crea automáticamente si no existe. Debe estar vacía l
 
 ```yaml
 schedule:
-  - cron: "0 7 * * *"
+  - cron: "17 6 * * *"
     timezone: "America/Monterrey"
 ```
 
-Por tanto se programa diariamente a las 7:00 a. m. de Monterrey. GitHub puede iniciar un job programado algunos minutos tarde.
+Por tanto se programa diariamente a las 6:17 a. m. de Monterrey. Se evita el minuto 00 para reducir congestión del scheduler de GitHub. Los jobs programados siguen siendo best-effort y pueden iniciar después de la hora prevista.
 
 ## Primera prueba manual
 
