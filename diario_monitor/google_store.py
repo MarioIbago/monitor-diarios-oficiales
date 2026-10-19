@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -9,12 +10,15 @@ from typing import Any
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError, ResumableUploadError
 from googleapiclient.http import MediaFileUpload
 
 
 FOLDER_MIME = "application/vnd.google-apps.folder"
 PDF_MIME = "application/pdf"
 MD_MIME = "text/markdown"
+RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+UPLOAD_ATTEMPTS = 4
 
 HEADERS = [
     "Documento ID",
@@ -187,23 +191,52 @@ class GoogleStore:
         return self.ensure_folder(year_id, f"{month:02d}")
 
     def create_file(self, path: Path, *, parent_id: str, mime_type: str) -> dict[str, str]:
-        media = MediaFileUpload(str(path), mimetype=mime_type, resumable=True)
-        return self.drive.files().create(
-            body={"name": path.name, "parents": [parent_id]},
-            media_body=media,
-            fields="id,name,webViewLink",
-            supportsAllDrives=True,
-        ).execute()
+        for attempt in range(UPLOAD_ATTEMPTS):
+            media = MediaFileUpload(str(path), mimetype=mime_type, resumable=True)
+            request = self.drive.files().create(
+                body={"name": path.name, "parents": [parent_id]},
+                media_body=media,
+                fields="id,name,webViewLink",
+                supportsAllDrives=True,
+            )
+            try:
+                return request.execute()
+            except Exception as exc:
+                if not self._is_retryable_upload_error(exc) or attempt == UPLOAD_ATTEMPTS - 1:
+                    raise
+                time.sleep(min(2**attempt, 8))
+        raise RuntimeError("No se pudo crear el archivo en Google Drive")
 
     def update_file(self, file_id: str, path: Path, *, mime_type: str) -> dict[str, str]:
-        media = MediaFileUpload(str(path), mimetype=mime_type, resumable=True)
-        return self.drive.files().update(
-            fileId=file_id,
-            body={"name": path.name},
-            media_body=media,
-            fields="id,name,webViewLink",
-            supportsAllDrives=True,
-        ).execute()
+        for attempt in range(UPLOAD_ATTEMPTS):
+            media = MediaFileUpload(str(path), mimetype=mime_type, resumable=True)
+            request = self.drive.files().update(
+                fileId=file_id,
+                body={"name": path.name},
+                media_body=media,
+                fields="id,name,webViewLink",
+                supportsAllDrives=True,
+            )
+            try:
+                return request.execute()
+            except Exception as exc:
+                if not self._is_retryable_upload_error(exc) or attempt == UPLOAD_ATTEMPTS - 1:
+                    raise
+                time.sleep(min(2**attempt, 8))
+        raise RuntimeError("No se pudo actualizar el archivo en Google Drive")
+
+    @staticmethod
+    def _is_retryable_upload_error(exc: Exception) -> bool:
+        if isinstance(exc, HttpError):
+            status = getattr(getattr(exc, "resp", None), "status", None)
+            return status in RETRYABLE_STATUS_CODES
+        if isinstance(exc, ResumableUploadError):
+            status = getattr(getattr(exc, "resp", None), "status", None)
+            if status in RETRYABLE_STATUS_CODES:
+                return True
+            message = str(exc).lower()
+            return any(token in message for token in ("500", "502", "503", "504", "unknown error"))
+        return False
 
     @staticmethod
     def drive_url(file_id: str, response: dict[str, Any] | None = None) -> str:
